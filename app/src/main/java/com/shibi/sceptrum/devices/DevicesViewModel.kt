@@ -3,6 +3,7 @@ package com.shibi.sceptrum.devices
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.shibi.sceptrum.data.DeviceRepository
+import com.shibi.sceptrum.data.LearnedAppsRepository
 import com.shibi.sceptrum.discovery.TvDiscovery
 import com.shibi.sceptrum.domain.DeviceListMerge
 import com.shibi.sceptrum.domain.DiscoveredRow
@@ -50,6 +51,8 @@ class DevicesViewModel(
     private val repository: DeviceRepository,
     private val discovery: TvDiscovery,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Forgetting a TV also drops the apps learned from it. */
+    private val learnedApps: LearnedAppsRepository? = null,
 ) : ViewModel() {
     private val manual = MutableStateFlow(ManualEntry())
     private val editing = MutableStateFlow<DeviceEdit?>(null)
@@ -110,7 +113,10 @@ class DevicesViewModel(
     fun confirmForget() {
         val edit = editing.value ?: return
         editing.value = null
-        viewModelScope.launch { repository.forget(edit.id) }
+        viewModelScope.launch {
+            repository.forget(edit.id)
+            learnedApps?.forgetDevice(edit.id)
+        }
     }
 
     fun closeEdit() {
