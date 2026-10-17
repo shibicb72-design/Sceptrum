@@ -193,6 +193,17 @@
     <string name="licence_androidx">AndroidX, Jetpack Compose, Material 3 and Kotlin coroutines. Apache License 2.0.</string>
     <string name="licence_full_text">Full licence text: apache.org/licenses/LICENSE-2.0. Notices are in the NOTICE file of the source code.</string>
 
+    <!-- Debugging / Error log -->
+    <string name="error_log_title">Debugging / Error log</string>
+    <string name="error_log_back">Back</string>
+    <string name="error_log_copy_all">Copy all</string>
+    <string name="error_log_copied">Copied</string>
+    <string name="error_log_summary">%1$d errors kept on this phone (up to 200). No keys or codes are logged.</string>
+    <string name="error_log_empty">No errors logged.</string>
+    <string name="error_log_clip_label">Sceptrum error log</string>
+    <string name="error_log_open">Open error log</string>
+    <string name="error_log_details_hint">Details in Settings &gt; Debugging / Error log.</string>
+
     <!-- Background names -->
     <string name="bg_default">Midnight</string>
     <string name="bg_blush">Blush</string>
