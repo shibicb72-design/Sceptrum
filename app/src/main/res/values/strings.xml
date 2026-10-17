@@ -141,6 +141,8 @@
     <string name="devices_address">Address: %1$s</string>
     <string name="devices_mac">Network (MAC) address: %1$s</string>
     <string name="devices_mac_unknown">Network (MAC) address unknown: power-on over the network is not possible.</string>
+    <string name="devices_channel_buttons">Show channel buttons</string>
+    <string name="devices_channel_buttons_body">Turn off for projectors and streaming boxes, which have no TV channels. The device cannot tell the app this itself.</string>
     <string name="devices_save">Save</string>
     <string name="devices_forget">Forget</string>
     <string name="devices_forget_confirm">Forget %1$s? You will need to pair it again.</string>

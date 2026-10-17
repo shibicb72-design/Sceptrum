@@ -1,10 +1,13 @@
 package com.shibi.sceptrum.devices
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.shibi.sceptrum.data.DeviceRepository
+import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.discovery.TvDiscovery
 import com.shibi.sceptrum.domain.DiscoveredTv
 import com.shibi.sceptrum.domain.DiscoveryState
 import com.shibi.sceptrum.domain.PairingTarget
+import com.shibi.sceptrum.store.DeviceStore
 import com.shibi.sceptrum.store.PairedDevice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -125,6 +128,73 @@ class DevicesViewModelTest {
         assertNull(renamed.editing)
         assertEquals("192.168.1.50", renamed.saved.single().host)
         assertEquals("AA:BB:CC:01:02:03", renamed.saved.single().mac)
+    }
+
+    @Test
+    fun channelButtonsSwitchIsSavedPerDeviceAndKeepsTheCardOpen() {
+        // Memory store: this test writes back to back (see TestStores.memoryRepository).
+        val memory = TestStores.memoryRepository()
+        val memVm = DevicesViewModel(memory, discovery, clock = { 9L })
+        runBlocking {
+            memory.savePaired(PairedDevice(id = "proj", name = "Projector", host = "10.0.0.1"))
+            memory.savePaired(PairedDevice(id = "tv", name = "TCL", host = "10.0.0.2"))
+        }
+        fun await(predicate: (DevicesUiState) -> Boolean) = runBlocking { withTimeout(5_000) { memVm.state.first(predicate) } }
+        suspend fun stored(id: String) = memory.devices.first().single { it.id == id }
+
+        await { it.saved.size == 2 }
+        memVm.edit("proj")
+        assertTrue("on by default", await { it.editing?.id == "proj" }.editing!!.showChannelButtons)
+
+        memVm.setShowChannelButtons(false)
+        val edit = await { it.editing?.showChannelButtons == false }.editing!!
+        assertEquals("the card stays open", "proj", edit.id)
+        runBlocking { withTimeout(5_000) { memory.devices.first { d -> d.single { it.id == "proj" }.hide_channel_buttons } } }
+        assertFalse("the other device keeps its rocker", runBlocking { stored("tv") }.hide_channel_buttons)
+
+        memVm.closeEdit()
+        memVm.edit("proj")
+        assertFalse("reopening reads the saved value", await { it.editing?.id == "proj" }.editing!!.showChannelButtons)
+
+        // Quick taps are saved in order; a rename afterwards keeps the setting.
+        memVm.setShowChannelButtons(true)
+        memVm.setShowChannelButtons(false)
+        memVm.setShowChannelButtons(true)
+        memVm.onRenameChange("Living room")
+        memVm.saveRename()
+        runBlocking { withTimeout(5_000) { memory.devices.first { d -> d.single { it.id == "proj" }.name == "Living room" } } }
+        assertFalse(runBlocking { stored("proj") }.hide_channel_buttons)
+    }
+
+    @Test
+    fun channelButtonsSwitchWithoutAnOpenCardDoesNothing() {
+        val memory = TestStores.memoryRepository()
+        val memVm = DevicesViewModel(memory, discovery)
+        runBlocking { memory.savePaired(PairedDevice(id = "a", name = "A", host = "10.0.0.1")) }
+        memVm.setShowChannelButtons(false)
+        // A later write has landed, so a stray one from the call above would have too.
+        runBlocking {
+            memory.rename("a", "B")
+            withTimeout(5_000) { memory.devices.first { it.single().name == "B" } }
+        }
+        assertFalse(runBlocking { memory.devices.first().single() }.hide_channel_buttons)
+    }
+
+    @Test
+    fun aFailedChannelButtonsWriteRevertsTheSwitchAndIsLogged() {
+        val store = TestStores.MemoryDataStore(DeviceStore(devices = listOf(PairedDevice(id = "a", name = "A", host = "10.0.0.1"))))
+        val log = ErrorLog(java.io.File.createTempFile("errors", ".txt"), "test", "robolectric")
+        val memVm = DevicesViewModel(DeviceRepository(store), discovery, errors = log)
+        fun await(predicate: (DevicesUiState) -> Boolean) = runBlocking { withTimeout(5_000) { memVm.state.first(predicate) } }
+        await { it.saved.isNotEmpty() }
+        memVm.edit("a")
+        await { it.editing != null }
+        store.failWrites = true
+
+        memVm.setShowChannelButtons(false)
+        assertTrue("switched back on", await { it.editing?.showChannelButtons == true }.editing!!.showChannelButtons)
+        val report = log.report()
+        assertTrue(report, report.contains("Show channel buttons"))
     }
 
     @Test

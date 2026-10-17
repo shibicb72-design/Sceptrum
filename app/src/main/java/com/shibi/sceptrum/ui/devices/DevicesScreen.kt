@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,11 +30,13 @@ import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -62,6 +65,7 @@ class DevicesActions(
     val onEdit: (String) -> Unit = {},
     val onRenameChange: (String) -> Unit = {},
     val onSaveRename: () -> Unit = {},
+    val onShowChannelButtons: (Boolean) -> Unit = {},
     val onAskForget: () -> Unit = {},
     val onConfirmForget: () -> Unit = {},
     val onCloseEdit: () -> Unit = {},
@@ -226,7 +230,7 @@ private fun SavedDeviceCard(row: SavedRow, onClick: () -> Unit, onEdit: (() -> U
     }
 }
 
-/** Rename, see the address and MAC, or forget (with a confirmation step). */
+/** Rename, see the address and MAC, show or hide channel buttons, or forget (with a confirmation step). */
 @Composable
 private fun DeviceEditCard(edit: DeviceEdit, actions: DevicesActions, modifier: Modifier = Modifier) {
     GlassCard(title = stringResource(R.string.devices_edit_title), modifier = modifier) {
@@ -244,6 +248,27 @@ private fun DeviceEditCard(edit: DeviceEdit, actions: DevicesActions, modifier: 
             if (edit.mac.isNotEmpty()) stringResource(R.string.devices_mac, edit.mac) else stringResource(R.string.devices_mac_unknown),
             Modifier.padding(top = 4.dp),
         )
+        // The whole row toggles, so TalkBack reads the label with the switch state.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .padding(top = 12.dp)
+                .toggleable(value = edit.showChannelButtons, role = Role.Switch, onValueChange = actions.onShowChannelButtons),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.devices_channel_buttons),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = stringResource(R.string.devices_channel_buttons_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = edit.showChannelButtons, onCheckedChange = null)
+        }
         Spacer(Modifier.size(12.dp))
         if (edit.confirmForget) {
             Text(

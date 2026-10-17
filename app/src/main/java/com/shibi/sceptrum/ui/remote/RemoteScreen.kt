@@ -223,12 +223,13 @@ internal fun RemotePad(
                     actions.onTap(RemoteKey.Menu)
                 }
             }
+            // Without the channel rocker, SpaceEvenly spreads volume and mute over the row: no hole.
             KeyRow {
                 VolumeRocker(actions)
                 RemoteKey(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.remote_mute)) {
                     actions.onTap(RemoteKey.Mute)
                 }
-                ChannelRocker(actions)
+                if (session.showChannelButtons) ChannelRocker(actions)
             }
             KeyRow {
                 MediaKey(Icons.Rounded.FastRewind, R.string.remote_rewind, RemoteKey.Rewind, actions)

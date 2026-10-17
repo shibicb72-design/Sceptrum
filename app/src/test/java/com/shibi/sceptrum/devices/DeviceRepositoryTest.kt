@@ -106,6 +106,7 @@ class DeviceRepositoryTest {
         repo.rename(tv.id, "  Living room projector ")
         repo.rename(tcl.id, "   ")
         repo.setAppShortcuts(tv.id, grid)
+        repo.setShowChannelButtons(tv.id, false)
         first.coroutineContext[Job]!!.cancelAndJoin()
 
         val reopened = TestStores.repository(aead, file)
@@ -116,6 +117,8 @@ class DeviceRepositoryTest {
         assertTrue(stored.getValue(tv.id).app_shortcuts_edited)
         assertFalse(stored.getValue(tcl.id).app_shortcuts_edited)
         assertEquals("the pin is untouched", tv.server_cert_sha256, stored.getValue(tv.id).server_cert_sha256)
+        assertTrue(stored.getValue(tv.id).hide_channel_buttons)
+        assertFalse("other devices keep the rocker", stored.getValue(tcl.id).hide_channel_buttons)
 
         reopened.resetAppShortcuts(tv.id)
         val reset = reopened.devices.first().first { it.id == tv.id }

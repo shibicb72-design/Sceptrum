@@ -206,8 +206,35 @@ class SessionManagerTest {
     }
 
     @Test
+    fun hidingChannelButtonsKeepsTheConnection() {
+        val tv = tv()
+        val device = tv.asDevice("Projector")
+        active.value = device
+        manager.acquire()
+        assertTrue("shown by default", await { it.status == ConnectionStatus.Connected }.showChannelButtons)
+
+        active.value = device.copy(hide_channel_buttons = true)
+        // A swapped client would start from Idle, so Connected here means the same connection.
+        await { !it.showChannelButtons && it.status == ConnectionStatus.Connected }
+        assertEquals(1, tv.remoteConnections.get())
+    }
+
+    @Test
+    fun channelButtonsFollowTheActiveDevice() {
+        val projector = tv("Projector")
+        val tcl = tv("TCL")
+        active.value = projector.asDevice("Projector").copy(hide_channel_buttons = true)
+        manager.acquire()
+        await { it.deviceName == "Projector" && !it.showChannelButtons }
+
+        active.value = tcl.asDevice("TCL")
+        await { it.deviceName == "TCL" && it.showChannelButtons }
+    }
+
+    @Test
     fun noDeviceMeansNoDeviceStatus() {
         assertEquals(ConnectionStatus.NoDevice, manager.state.value.status)
+        assertTrue("no device: the rocker stays", manager.state.value.showChannelButtons)
         assertFalse(manager.send(19, KeyDirection.Short))
         assertFalse(manager.sendText("a"))
         assertFalse(manager.launchApp("plex://"))
