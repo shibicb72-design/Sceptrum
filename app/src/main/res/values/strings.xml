@@ -9,11 +9,8 @@
 
     <!-- Remote -->
     <string name="remote_no_device">No device yet</string>
-    <string name="remote_preview_note">Preview layout. Buttons connect to your TV in a later update.</string>
     <string name="remote_power">Power</string>
     <string name="remote_input">Input</string>
-    <string name="remote_apps">Apps</string>
-    <string name="remote_keyboard">Keyboard</string>
     <string name="remote_up">Up</string>
     <string name="remote_down">Down</string>
     <string name="remote_left">Left</string>
@@ -34,9 +31,19 @@
     <string name="remote_play_pause">Play or pause</string>
     <string name="remote_next">Next</string>
     <string name="remote_fast_forward">Fast forward</string>
-    <string name="remote_panel_apps">Apps</string>
-    <string name="remote_panel_apps_hint">App shortcuts arrive with the Google TV MVP.</string>
     <string name="remote_panel_numbers">Numbers</string>
+    <string name="remote_settings">TV settings</string>
+    <string name="status_no_device">No TV paired</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_reconnecting">Reconnecting…</string>
+    <string name="status_offline">Offline</string>
+    <string name="status_needs_pairing">The TV forgot this phone</string>
+    <string name="status_identity_changed">The TV\'s identity changed</string>
+    <string name="status_retry">Retry</string>
+    <string name="status_open_devices">Pair</string>
+    <string name="volume_level">Vol %1$d / %2$d</string>
+    <string name="volume_muted">Vol %1$d / %2$d · Muted</string>
 
     <!-- Devices -->
     <string name="devices_title">Devices</string>
