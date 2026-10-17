@@ -12,3 +12,4 @@
 ## Retro
 
 - PR 2 (protocol core): Windows aborts a TLS 1.3 connection with a TCP reset when the server refuses the client certificate, so the `bad_certificate` alert never arrives. "Needs pairing" therefore also triggers after 3 silent closes in a row, not only on an SSL error.
+- PR 3 (discovery and pairing): an indeterminate spinner never lets Roborazzi reach idle; Robolectric then runs out of heap in `ShadowTrace`. Spinners go through `BusyIndicator`, which is still when the animator scale is 0, and screenshot tests set that scale. DataStore allows one live instance per file, so reopen tests cancel the first store's scope.

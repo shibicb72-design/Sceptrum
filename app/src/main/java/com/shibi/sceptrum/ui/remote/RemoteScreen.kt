@@ -35,9 +35,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.shibi.sceptrum.R
+import com.shibi.sceptrum.devices.DevicesUiState
 import com.shibi.sceptrum.domain.WindowWidthClass
 import com.shibi.sceptrum.ui.GlassCard
 import com.shibi.sceptrum.ui.devices.DeviceListPane
+import com.shibi.sceptrum.ui.devices.DevicesActions
 
 /**
  * Static remote layout (no networking yet).
@@ -49,23 +51,31 @@ import com.shibi.sceptrum.ui.devices.DeviceListPane
 fun RemoteScreen(
     widthClass: WindowWidthClass,
     modifier: Modifier = Modifier,
+    devices: DevicesUiState = DevicesUiState(),
+    deviceActions: DevicesActions = DevicesActions(),
 ) {
+    val deviceName = devices.saved.firstOrNull { it.active }?.name
     when (widthClass) {
-        WindowWidthClass.Compact -> RemotePad(modifier = modifier.fillMaxSize())
+        WindowWidthClass.Compact -> RemotePad(deviceName, modifier = modifier.fillMaxSize())
         WindowWidthClass.Medium -> Row(modifier.fillMaxSize()) {
-            RemotePad(modifier = Modifier.weight(0.6f).fillMaxHeight())
+            RemotePad(deviceName, modifier = Modifier.weight(0.6f).fillMaxHeight())
             SidePanel(modifier = Modifier.weight(0.4f).fillMaxHeight())
         }
         WindowWidthClass.Expanded -> Row(modifier.fillMaxSize()) {
-            DeviceListPane(modifier = Modifier.weight(0.24f).fillMaxHeight())
-            RemotePad(modifier = Modifier.weight(0.46f).fillMaxHeight())
+            DeviceListPane(
+                state = devices,
+                actions = deviceActions,
+                showDiscovery = false,
+                modifier = Modifier.weight(0.24f).fillMaxHeight(),
+            )
+            RemotePad(deviceName, modifier = Modifier.weight(0.46f).fillMaxHeight())
             SidePanel(modifier = Modifier.weight(0.30f).fillMaxHeight())
         }
     }
 }
 
 @Composable
-internal fun RemotePad(modifier: Modifier = Modifier) {
+internal fun RemotePad(deviceName: String?, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
@@ -82,7 +92,7 @@ internal fun RemotePad(modifier: Modifier = Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 DeviceChip(
-                    name = stringResource(R.string.remote_no_device),
+                    name = deviceName ?: stringResource(R.string.remote_no_device),
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(12.dp))

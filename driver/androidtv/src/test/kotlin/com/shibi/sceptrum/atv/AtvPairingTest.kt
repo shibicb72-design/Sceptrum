@@ -78,6 +78,14 @@ class AtvPairingTest {
     }
 
     @Test
+    fun probeReadsNameAndMacWithoutPairing() = runBlocking {
+        val probe = AtvPairingSession.probe(tv.host, AtvFixtures.client, tv.pairingPort)
+        assertEquals(TvIdentity("SHIELD Android TV", "AA:BB:CC:DD:EE:01"), probe.identity)
+        assertArrayEquals(AtvTls.sha256(AtvFixtures.tv.certificate), probe.serverSha256)
+        assertTrue(tv.pairingRequests.isEmpty())
+    }
+
+    @Test
     fun nothingListening() = runBlocking {
         val closedPort = ServerSocket(0).use { it.localPort }
         expectFailure(PairingFailure.Unreachable) {
