@@ -77,7 +77,7 @@ class AppGraph(context: Context) {
 
     val viewModelFactory: ViewModelProvider.Factory = viewModelFactory {
         initializer { DevicesViewModel(deviceRepository, discovery) }
-        initializer { PairingViewModel(pairingGateway, deviceRepository, appVersion = versionName()) }
+        initializer { PairingViewModel(pairingGateway, deviceRepository, appVersion = versionName(), errors = errorLog) }
         initializer { RemoteViewModel(sessionManager, waker) }
         initializer { KeyboardViewModel(sessionManager, remotePreferences.keyPressTyping) }
         initializer { AppsViewModel(deviceRepository, sessionManager) }

@@ -7,6 +7,7 @@ import com.shibi.sceptrum.atv.PairingDiagnostics
 import com.shibi.sceptrum.atv.PairingException
 import com.shibi.sceptrum.atv.PairingFailure
 import com.shibi.sceptrum.data.DeviceRepository
+import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.domain.DeviceIds
 import com.shibi.sceptrum.domain.PairingError
 import com.shibi.sceptrum.domain.PairingTarget
@@ -28,8 +29,9 @@ class PairingViewModel(
     private val gateway: PairingGateway,
     private val repository: DeviceRepository,
     private val clock: () -> Long = System::currentTimeMillis,
-    /** Goes into the "Copy details" report. */
+    /** Goes into the error log report. */
     private val appVersion: String = "dev",
+    private val errors: ErrorLog? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow<PairingUiState>(PairingUiState.Idle)
     val state: StateFlow<PairingUiState> = _state.asStateFlow()
@@ -80,9 +82,22 @@ class PairingViewModel(
                 _state.value = PairingUiState.Paired(target, id)
             } catch (e: PairingException) {
                 when (e.failure) {
-                    PairingFailure.WrongCode ->
+                    PairingFailure.WrongCode -> {
+                        errors?.record(
+                            "Pairing",
+                            "The code failed the local check (typo?)",
+                            null,
+                            tv = "${current.target.name} (${current.target.host}:${current.target.pairingPort})",
+                        )
                         _state.value = current.copy(code = "", submitting = false, error = PairingError.WrongCode)
+                    }
                     PairingFailure.BadSecret -> {
+                        errors?.record(
+                            "Pairing",
+                            "The TV said the code was wrong and shows a new one",
+                            e,
+                            tv = "${current.target.name} (${current.target.host}:${current.target.pairingPort})",
+                        )
                         closeAttempt()
                         connect(current.target, carriedError = PairingError.BadSecret)
                     }
@@ -135,6 +150,12 @@ class PairingViewModel(
             port = target.pairingPort,
             detail = e.message,
             errors = PairingDiagnostics.chain(e.cause),
+        )
+        errors?.record(
+            "Pairing",
+            diagnostics.report(appVersion).removePrefix("Sceptrum pairing report").trim(),
+            e,
+            tv = "${target.name} (${target.host}:${target.pairingPort})",
         )
         _state.value = PairingUiState.Failed(target, e.failure.toUiError(), diagnostics.report(appVersion))
     }

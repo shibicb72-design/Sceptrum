@@ -5,6 +5,7 @@ import com.shibi.sceptrum.atv.PairingDiagnostics
 import com.shibi.sceptrum.atv.PairingException
 import com.shibi.sceptrum.atv.PairingFailure
 import com.shibi.sceptrum.atv.PairingStep
+import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.domain.PairingError
 import com.shibi.sceptrum.domain.PairingTarget
 import com.shibi.sceptrum.domain.PairingUiState
@@ -136,6 +137,19 @@ class PairingViewModelTest {
             assertEquals(error, failed.error)
             assertTrue(failed.report, failed.report.contains("error: ${failure.name}"))
         }
+    }
+
+    @Test
+    fun failedPairingIsWrittenToTheErrorLog() {
+        val log = ErrorLog(kotlin.io.path.createTempDirectory("errors").toFile().resolve("e.log"), "9.9.9", "Test phone")
+        vm = PairingViewModel(gateway, repository, clock = { 42L }, appVersion = "9.9.9", errors = log)
+        gateway.startFailure = PairingFailure.Handshake
+        vm.begin(target)
+        awaitState { it is PairingUiState.Failed }
+        assertEquals(1, log.entries.value.size)
+        assertEquals("Pairing", log.entries.value[0].step)
+        assertTrue(log.entries.value[0].tv.contains("192.168.1.50"))
+        assertTrue(!log.entries.value[0].message.contains("Sceptrum pairing report"))
     }
 
     @Test
