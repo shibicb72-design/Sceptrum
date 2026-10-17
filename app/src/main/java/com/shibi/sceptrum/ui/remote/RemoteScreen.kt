@@ -2,6 +2,7 @@ package com.shibi.sceptrum.ui.remote
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -15,51 +16,51 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Input
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.automirrored.rounded.Input
-import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.shibi.sceptrum.R
 import com.shibi.sceptrum.devices.DevicesUiState
+import com.shibi.sceptrum.domain.ConnectionStatus
+import com.shibi.sceptrum.domain.RemoteKey
 import com.shibi.sceptrum.domain.WindowWidthClass
+import com.shibi.sceptrum.session.SessionState
 import com.shibi.sceptrum.ui.GlassCard
 import com.shibi.sceptrum.ui.devices.DeviceListPane
 import com.shibi.sceptrum.ui.devices.DevicesActions
 
 /**
- * Static remote layout (no networking yet).
+ * The remote.
  * - Compact (folded cover screen): one column.
- * - Medium (split screen): remote plus the side panel.
- * - Expanded (unfolded): devices, remote and side panel as three panes.
+ * - Medium (split screen): remote plus the number pad.
+ * - Expanded (unfolded): devices, remote and number pad as three panes.
  */
 @Composable
 fun RemoteScreen(
     widthClass: WindowWidthClass,
     modifier: Modifier = Modifier,
+    session: SessionState = SessionState(),
+    actions: RemoteActions = RemoteActions(),
     devices: DevicesUiState = DevicesUiState(),
     deviceActions: DevicesActions = DevicesActions(),
 ) {
-    val deviceName = devices.saved.firstOrNull { it.active }?.name
     when (widthClass) {
-        WindowWidthClass.Compact -> RemotePad(deviceName, modifier = modifier.fillMaxSize())
+        WindowWidthClass.Compact -> RemotePad(session, actions, modifier = modifier.fillMaxSize())
         WindowWidthClass.Medium -> Row(modifier.fillMaxSize()) {
-            RemotePad(deviceName, modifier = Modifier.weight(0.6f).fillMaxHeight())
-            SidePanel(modifier = Modifier.weight(0.4f).fillMaxHeight())
+            RemotePad(session, actions, modifier = Modifier.weight(0.6f).fillMaxHeight())
+            SidePanel(actions, modifier = Modifier.weight(0.4f).fillMaxHeight())
         }
         WindowWidthClass.Expanded -> Row(modifier.fillMaxSize()) {
             DeviceListPane(
@@ -68,14 +69,14 @@ fun RemoteScreen(
                 showDiscovery = false,
                 modifier = Modifier.weight(0.24f).fillMaxHeight(),
             )
-            RemotePad(deviceName, modifier = Modifier.weight(0.46f).fillMaxHeight())
-            SidePanel(modifier = Modifier.weight(0.30f).fillMaxHeight())
+            RemotePad(session, actions, modifier = Modifier.weight(0.46f).fillMaxHeight())
+            SidePanel(actions, modifier = Modifier.weight(0.30f).fillMaxHeight())
         }
     }
 }
 
 @Composable
-internal fun RemotePad(deviceName: String?, modifier: Modifier = Modifier) {
+internal fun RemotePad(session: SessionState, actions: RemoteActions, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
@@ -92,67 +93,92 @@ internal fun RemotePad(deviceName: String?, modifier: Modifier = Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 DeviceChip(
-                    name = deviceName ?: stringResource(R.string.remote_no_device),
+                    name = session.deviceName ?: stringResource(R.string.remote_no_device),
+                    status = session.status,
+                    onClick = actions.onOpenDevices,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(12.dp))
-                PowerKey()
+                PowerKey(onClick = { actions.onTap(RemoteKey.Power) })
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                StatusChip(session.status, actions)
+                val volume = session.volume
+                if (volume != null && session.status == ConnectionStatus.Connected) VolumeChip(volume)
             }
             KeyRow {
-                RemoteKey(Icons.AutoMirrored.Rounded.Input, stringResource(R.string.remote_input))
-                RemoteKey(Icons.Rounded.Apps, stringResource(R.string.remote_apps))
-                RemoteKey(Icons.Rounded.Keyboard, stringResource(R.string.remote_keyboard))
+                RemoteKey(Icons.AutoMirrored.Rounded.Input, stringResource(R.string.remote_input)) {
+                    actions.onTap(RemoteKey.Input)
+                }
+                RemoteKey(Icons.Rounded.Settings, stringResource(R.string.remote_settings)) {
+                    actions.onTap(RemoteKey.Settings)
+                }
             }
-            DpadDisc()
+            DpadDisc(actions = actions)
             KeyRow {
-                RemoteKey(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.remote_back))
-                RemoteKey(Icons.Rounded.Home, stringResource(R.string.remote_home))
-                RemoteKey(Icons.Rounded.Menu, stringResource(R.string.remote_menu))
+                RemoteKey(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.remote_back)) {
+                    actions.onTap(RemoteKey.Back)
+                }
+                HomeKey(actions)
+                RemoteKey(Icons.Rounded.Menu, stringResource(R.string.remote_menu)) {
+                    actions.onTap(RemoteKey.Menu)
+                }
             }
             KeyRow {
-                VolumeRocker()
-                RemoteKey(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.remote_mute))
-                ChannelRocker()
+                VolumeRocker(actions)
+                RemoteKey(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.remote_mute)) {
+                    actions.onTap(RemoteKey.Mute)
+                }
+                ChannelRocker(actions)
             }
             KeyRow {
-                RemoteKey(Icons.Rounded.FastRewind, stringResource(R.string.remote_rewind), size = 52.dp)
-                RemoteKey(Icons.Rounded.SkipPrevious, stringResource(R.string.remote_previous), size = 52.dp)
-                RemoteKey(Icons.Rounded.PlayArrow, stringResource(R.string.remote_play_pause), size = 52.dp)
-                RemoteKey(Icons.Rounded.SkipNext, stringResource(R.string.remote_next), size = 52.dp)
-                RemoteKey(Icons.Rounded.FastForward, stringResource(R.string.remote_fast_forward), size = 52.dp)
+                MediaKey(Icons.Rounded.FastRewind, R.string.remote_rewind, RemoteKey.Rewind, actions)
+                MediaKey(Icons.Rounded.SkipPrevious, R.string.remote_previous, RemoteKey.Previous, actions)
+                MediaKey(Icons.Rounded.PlayArrow, R.string.remote_play_pause, RemoteKey.PlayPause, actions)
+                MediaKey(Icons.Rounded.SkipNext, R.string.remote_next, RemoteKey.Next, actions)
+                MediaKey(Icons.Rounded.FastForward, R.string.remote_fast_forward, RemoteKey.FastForward, actions)
             }
-            Text(
-                text = stringResource(R.string.remote_preview_note),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.78f),
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }
 
-/** Apps and number keys. Shown beside the pad when there is room. */
+/** Home: tap goes home; a long press opens the TV's own long-press action. */
 @Composable
-internal fun SidePanel(modifier: Modifier = Modifier) {
+private fun HomeKey(actions: RemoteActions) {
+    GlassHoldKey(
+        icon = Icons.Rounded.Home,
+        contentDescription = stringResource(R.string.remote_home),
+        onPress = { actions.onPress(RemoteKey.Home) },
+        onRelease = { actions.onRelease(RemoteKey.Home) },
+    )
+}
+
+@Composable
+private fun MediaKey(icon: androidx.compose.ui.graphics.vector.ImageVector, label: Int, key: RemoteKey, actions: RemoteActions) {
+    RemoteKey(icon, stringResource(label), size = 52.dp) { actions.onTap(key) }
+}
+
+/** Number pad. Shown beside the pad when there is room. */
+@Composable
+internal fun SidePanel(actions: RemoteActions, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        GlassCard(title = stringResource(R.string.remote_panel_apps)) {
-            Text(
-                text = stringResource(R.string.remote_panel_apps_hint),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
         GlassCard(title = stringResource(R.string.remote_panel_numbers)) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("0"))
+                listOf(listOf(1, 2, 3), listOf(4, 5, 6), listOf(7, 8, 9), listOf(0))
                     .forEach { row ->
                         KeyRow {
-                            row.forEach { digit -> RemoteTextKey(digit, size = 56.dp) }
+                            row.forEach { digit ->
+                                RemoteTextKey(digit.toString(), size = 56.dp) { actions.onTap(RemoteKey.digit(digit)) }
+                            }
                         }
                     }
             }

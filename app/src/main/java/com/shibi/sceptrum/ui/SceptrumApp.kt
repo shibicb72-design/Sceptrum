@@ -16,11 +16,15 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -31,6 +35,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.shibi.sceptrum.appGraph
 import com.shibi.sceptrum.appearance.AppearanceViewModel
+import com.shibi.sceptrum.devices.DevicesUiState
 import com.shibi.sceptrum.devices.DevicesViewModel
 import com.shibi.sceptrum.domain.AppBackground
 import com.shibi.sceptrum.domain.PairingUiState
@@ -38,12 +43,15 @@ import com.shibi.sceptrum.domain.WindowWidthClass
 import com.shibi.sceptrum.domain.shownWith
 import com.shibi.sceptrum.ui.background.AppBackgroundHost
 import com.shibi.sceptrum.pairing.PairingViewModel
+import com.shibi.sceptrum.remote.RemoteHaptic
+import com.shibi.sceptrum.remote.RemoteViewModel
 import com.shibi.sceptrum.ui.devices.DevicesActions
 import com.shibi.sceptrum.ui.devices.DevicesScreen
 import com.shibi.sceptrum.ui.nav.NavCarousel
 import com.shibi.sceptrum.ui.nav.NavSection
 import com.shibi.sceptrum.ui.nav.SectionRoutes
 import com.shibi.sceptrum.ui.pairing.PairingActions
+import com.shibi.sceptrum.ui.remote.RemoteActions
 import com.shibi.sceptrum.ui.remote.RemoteScreen
 import com.shibi.sceptrum.ui.settings.SettingsScreen
 import com.shibi.sceptrum.ui.theme.SceptrumTheme
@@ -90,7 +98,12 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
                 startDestination = SectionRoutes.Start,
             ) {
                 composable(SectionRoutes.Remote) {
-                    RemoteScreen(widthClass, devices = devicesState, deviceActions = deviceActions)
+                    RemoteRoute(
+                        widthClass = widthClass,
+                        devicesState = devicesState,
+                        deviceActions = deviceActions,
+                        onOpenDevices = { navController.openSection(NavSection.Devices) },
+                    )
                 }
                 composable(SectionRoutes.Devices) {
                     // Each visit to Devices scans for one window; leaving stops it.
@@ -119,6 +132,50 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
             }
         }
     }
+}
+
+/**
+ * The remote, bound to the session: connected while this screen is started
+ * (plus the session's grace period), with haptics for repeats and rejects.
+ */
+@Composable
+private fun RemoteRoute(
+    widthClass: WindowWidthClass,
+    devicesState: DevicesUiState,
+    deviceActions: DevicesActions,
+    onOpenDevices: () -> Unit,
+) {
+    val graph = LocalContext.current.appGraph
+    val remote: RemoteViewModel = viewModel(factory = graph.viewModelFactory)
+    val session by remote.state.collectAsStateWithLifecycle()
+    val haptics = LocalHapticFeedback.current
+    LifecycleStartEffect(graph) {
+        graph.sessionManager.acquire()
+        onStopOrDispose { graph.sessionManager.release() }
+    }
+    LaunchedEffect(remote) {
+        remote.haptics.collect {
+            haptics.performHapticFeedback(
+                when (it) {
+                    RemoteHaptic.Tick -> HapticFeedbackType.SegmentFrequentTick
+                    RemoteHaptic.Reject -> HapticFeedbackType.Reject
+                },
+            )
+        }
+    }
+    RemoteScreen(
+        widthClass = widthClass,
+        session = session,
+        actions = RemoteActions(
+            onTap = remote::tap,
+            onPress = remote::press,
+            onRelease = remote::release,
+            onRetry = remote::retry,
+            onOpenDevices = onOpenDevices,
+        ),
+        devices = devicesState,
+        deviceActions = deviceActions,
+    )
 }
 
 /**
