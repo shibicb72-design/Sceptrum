@@ -1,11 +1,13 @@
 package com.shibi.sceptrum.ui.remote
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +16,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -26,21 +34,28 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardReturn
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -49,6 +64,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,8 +73,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.shibi.sceptrum.R
+import com.shibi.sceptrum.domain.AppBadge
 import com.shibi.sceptrum.domain.AppShortcutError
 import com.shibi.sceptrum.domain.AppShortcuts
+import com.shibi.sceptrum.domain.LearnedAppTile
 import com.shibi.sceptrum.domain.RemoteKey
 import com.shibi.sceptrum.domain.StandbyTip
 import com.shibi.sceptrum.domain.SwipeStepper
@@ -71,6 +89,7 @@ import com.shibi.sceptrum.ui.GlassCard
 import com.shibi.sceptrum.ui.PillButton
 import com.shibi.sceptrum.ui.background.ContrastSurface
 import com.shibi.sceptrum.ui.background.LocalBackgroundChrome
+import com.shibi.sceptrum.ui.background.contentColorForContainer
 
 /** What covers part of the folded remote: nothing, the apps grid, or the keyboard bar. */
 enum class RemotePanel { None, Apps, Keyboard }
@@ -93,6 +112,8 @@ class AppsActions(
     val onMoveUp: (Int) -> Unit = {},
     val onMoveDown: (Int) -> Unit = {},
     val onReset: () -> Unit = {},
+    /** Removes a "Seen on this TV" tile for good, by package. */
+    val onRemoveLearned: (String) -> Unit = {},
 )
 
 /** A small round glass button with an icon; content colour from its own fill. */
@@ -200,7 +221,10 @@ fun KeyboardCard(state: KeyboardUiState, actions: TypingActions, modifier: Modif
     }
 }
 
-/** Folded: the apps grid in place of the pad. */
+/** Tiles are at least this wide: three folded (~400 dp), two in the side panel from 610 dp to the unfolded inner screen. */
+internal val AppTileMinWidth = 96.dp
+
+/** Folded: the apps grid in place of the pad, scrolling on its own. */
 @Composable
 fun AppsPane(
     state: AppsUiState,
@@ -208,23 +232,88 @@ fun AppsPane(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        AppsCard(state, actions, columns = 3, trailing = {
+    val dark = !LocalBackgroundChrome.current.isLight
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(AppTileMinWidth),
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        appsSection(state, actions, dark, trailing = {
             SmallIconKey(Icons.Rounded.Close, stringResource(R.string.apps_close), size = 40.dp, onClick = onClose)
         })
     }
 }
 
-/** The grid, its Edit/Done switch and, while editing, the add form. */
-@Composable
-fun AppsCard(
+/**
+ * The apps section of a lazy grid: a header card with Edit/Done, the curated
+ * tiles, the tiles learned from this TV under "Seen on this TV", and a footer
+ * card with "Add current app", the add form or a hint. [dark] picks the badge
+ * tone; it is read once by the caller rather than in every item.
+ */
+fun LazyGridScope.appsSection(
     state: AppsUiState,
     actions: AppsActions,
-    columns: Int,
-    modifier: Modifier = Modifier,
+    dark: Boolean,
     trailing: @Composable () -> Unit = {},
 ) {
-    GlassCard(modifier = modifier) {
+    item(key = "apps-header", contentType = "apps-header", span = { GridItemSpan(maxLineSpan) }) {
+        AppsHeader(state, actions, trailing)
+    }
+    val keys = tileKeys(state.shortcuts)
+    itemsIndexed(state.shortcuts, key = { index, _ -> keys[index] }, contentType = { _, _ -> "app-tile" }) { index, shortcut ->
+        AppTile(
+            label = shortcut.label,
+            badgeSeed = AppShortcuts.badgeSeed(shortcut.link),
+            dark = dark,
+            editing = state.editing,
+            first = index == 0,
+            last = index == state.shortcuts.lastIndex,
+            onLaunch = { actions.onLaunch(shortcut) },
+            onMoveUp = { actions.onMoveUp(index) },
+            onMoveDown = { actions.onMoveDown(index) },
+            onRemove = { actions.onRemove(index) },
+        )
+    }
+    if (state.learned.isNotEmpty()) {
+        item(key = "learned-header", contentType = "learned-header", span = { GridItemSpan(maxLineSpan) }) {
+            LearnedHeader()
+        }
+        items(state.learned, key = { "learned:${it.packageName}" }, contentType = { "learned-tile" }) { app ->
+            LearnedTile(
+                app = app,
+                dark = dark,
+                editing = state.editing,
+                onLaunch = { actions.onLaunch(app.shortcut) },
+                onRemove = { actions.onRemoveLearned(app.packageName) },
+            )
+        }
+    }
+    val current = state.currentApp
+    val learnHint = state.canEdit && !state.editing && state.learned.isEmpty()
+    if ((state.canEdit && current != null) || state.editing || !state.canEdit || learnHint) {
+        item(key = "apps-footer", contentType = "apps-footer", span = { GridItemSpan(maxLineSpan) }) {
+            AppsFooter(state, actions, learnHint)
+        }
+    }
+}
+
+/**
+ * Lazy keys for the curated tiles: the link, which the grid keeps unique, with
+ * a counter on any repeat so an old stored duplicate can never crash the grid.
+ */
+private fun tileKeys(shortcuts: List<AppShortcut>): List<String> {
+    val seen = HashMap<String, Int>()
+    return shortcuts.map { tile ->
+        val n = seen.merge(tile.link, 1, Int::plus) ?: 1
+        if (n == 1) "app:${tile.link}" else "app:${tile.link}#$n"
+    }
+}
+
+@Composable
+private fun AppsHeader(state: AppsUiState, actions: AppsActions, trailing: @Composable () -> Unit) {
+    GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = stringResource(R.string.apps_title),
@@ -243,58 +332,77 @@ fun AppsCard(
             }
             trailing()
         }
-        Spacer(Modifier.height(12.dp))
-        // At most 24 tiles: a plain Column of Rows (no lazy grid). Rows are cached
-        // per list, and each tile is keyed by its link so a reorder within a row keeps its state.
-        val rows = remember(state.shortcuts, columns) { state.shortcuts.withIndex().chunked(columns) }
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            rows.forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    row.forEach { (index, shortcut) ->
-                        key(shortcut.link) {
-                            AppTile(
-                                shortcut = shortcut,
-                                editing = state.editing,
-                                first = index == 0,
-                                last = index == state.shortcuts.lastIndex,
-                                onLaunch = { actions.onLaunch(shortcut) },
-                                onMoveUp = { actions.onMoveUp(index) },
-                                onMoveDown = { actions.onMoveDown(index) },
-                                onRemove = { actions.onRemove(index) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
-                }
+    }
+}
+
+/** "Seen on this TV": a small chip on its own glass, above the learned tiles. */
+@Composable
+private fun LearnedHeader() {
+    Row {
+        ContrastSurface(
+            color = glassFill(),
+            shape = RoundedCornerShape(percent = 50),
+            border = BorderStroke(1.dp, LocalBackgroundChrome.current.glassBorder),
+            modifier = Modifier.padding(top = 4.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(
+                    text = stringResource(R.string.apps_seen_on_tv),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun AppsFooter(state: AppsUiState, actions: AppsActions, learnHint: Boolean) {
+    GlassCard {
         val current = state.currentApp
         if (state.canEdit && current != null) {
-            Spacer(Modifier.height(12.dp))
             PillButton(
                 text = stringResource(R.string.apps_add_current, current.label),
                 icon = Icons.Rounded.Add,
                 onClick = actions.onAddCurrent,
             )
+            if (state.editing || learnHint) Spacer(Modifier.height(12.dp))
         }
-        if (state.editing) {
-            Spacer(Modifier.height(12.dp))
-            AddAppForm(state, actions)
-        } else if (!state.canEdit) {
-            Text(
-                text = stringResource(R.string.apps_pair_to_edit),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 10.dp),
-            )
+        when {
+            state.editing -> AddAppForm(state, actions)
+            !state.canEdit -> FooterHint(stringResource(R.string.apps_pair_to_edit))
+            learnHint -> FooterHint(stringResource(R.string.apps_learn_hint))
+        }
+    }
+}
+
+@Composable
+private fun FooterHint(text: String) {
+    // Inside the glass card: onSurfaceVariant is the card's own content colour.
+    Text(text = text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/** The letter badge: an opaque fill from [seed]; ContrastSurface picks the letters' colour from that fill. */
+@Composable
+private fun AppBadgeIcon(label: String, seed: String, dark: Boolean) {
+    val fill = remember(seed, dark) { Color(AppBadge.colorsFor(seed, dark).fillArgb) }
+    ContrastSurface(color = fill, shape = CircleShape, modifier = Modifier.size(44.dp)) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(AppShortcuts.initials(label), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
 private fun AppTile(
-    shortcut: AppShortcut,
+    label: String,
+    badgeSeed: String,
+    dark: Boolean,
     editing: Boolean,
     first: Boolean,
     last: Boolean,
@@ -322,31 +430,111 @@ private fun AppTile(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            ContrastSurface(color = LocalBackgroundChrome.current.accentText, shape = CircleShape, modifier = Modifier.size(44.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(AppShortcuts.initials(shortcut.label), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                }
-            }
+            AppBadgeIcon(label, badgeSeed, dark)
             Spacer(Modifier.height(6.dp))
-            Text(
-                text = shortcut.label,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
+            TileLabel(label)
             if (editing) {
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     if (!first) {
-                        SmallIconKey(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.apps_move_earlier, shortcut.label), size = 32.dp, onClick = onMoveUp)
+                        SmallIconKey(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.apps_move_earlier, label), size = 32.dp, onClick = onMoveUp)
                     }
-                    SmallIconKey(Icons.Rounded.Close, stringResource(R.string.apps_remove, shortcut.label), size = 32.dp, onClick = onRemove)
+                    SmallIconKey(Icons.Rounded.Close, stringResource(R.string.apps_remove, label), size = 32.dp, onClick = onRemove)
                     if (!last) {
-                        SmallIconKey(Icons.AutoMirrored.Rounded.ArrowForward, stringResource(R.string.apps_move_later, shortcut.label), size = 32.dp, onClick = onMoveDown)
+                        SmallIconKey(Icons.AutoMirrored.Rounded.ArrowForward, stringResource(R.string.apps_move_later, label), size = 32.dp, onClick = onMoveDown)
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TileLabel(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        textAlign = TextAlign.Center,
+    )
+}
+
+/**
+ * A tile for an app the TV reported: tap launches it, a long press offers
+ * "Remove", and in edit mode it shows a remove button. A small history mark
+ * in the corner sets it apart from the curated tiles.
+ */
+@Composable
+private fun LearnedTile(
+    app: LearnedAppTile,
+    dark: Boolean,
+    editing: Boolean,
+    onLaunch: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = LocalHapticFeedback.current
+    var menuOpen by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(18.dp)
+    val fill = glassFill()
+    val seen = stringResource(R.string.apps_seen_on_tv)
+    val removeLabel = stringResource(R.string.apps_remove, app.label)
+    val interaction = if (editing) {
+        Modifier
+    } else {
+        // combinedClickable gives the long-press haptic itself.
+        Modifier.clip(shape).combinedClickable(
+            onLongClickLabel = removeLabel,
+            onLongClick = { menuOpen = true },
+            onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onLaunch()
+            },
+        )
+    }
+    Box(modifier) {
+        ContrastSurface(
+            color = fill,
+            shape = shape,
+            border = BorderStroke(1.dp, LocalBackgroundChrome.current.glassBorder),
+            modifier = interaction
+                .height(if (editing) 136.dp else 104.dp)
+                .semantics { stateDescription = seen },
+        ) {
+            Box {
+                Icon(
+                    Icons.Rounded.History,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(14.dp),
+                )
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    AppBadgeIcon(app.label, app.packageName, dark)
+                    Spacer(Modifier.height(6.dp))
+                    TileLabel(app.label)
+                    if (editing) {
+                        Spacer(Modifier.height(4.dp))
+                        SmallIconKey(Icons.Rounded.Close, removeLabel, size = 32.dp, onClick = onRemove)
+                    }
+                }
+            }
+        }
+        val menuText = contentColorForContainer(fill)
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, containerColor = fill) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.apps_remove_learned)) },
+                leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null) },
+                colors = MenuDefaults.itemColors(textColor = menuText, leadingIconColor = menuText),
+                onClick = {
+                    menuOpen = false
+                    onRemove()
+                },
+            )
         }
     }
 }

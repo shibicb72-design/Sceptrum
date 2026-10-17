@@ -86,6 +86,9 @@
     <string name="apps_error_duplicate">That app is already in the grid.</string>
     <string name="apps_error_full">The grid is full. Remove an app first.</string>
     <string name="apps_pair_to_edit">Pair a TV to change its apps.</string>
+    <string name="apps_seen_on_tv">Seen on this TV</string>
+    <string name="apps_learn_hint">Apps you open on the TV show up here. Long-press one to remove it.</string>
+    <string name="apps_remove_learned">Remove from Apps</string>
 
     <!-- Power -->
     <string name="power_waking">Waking %1$s…</string>

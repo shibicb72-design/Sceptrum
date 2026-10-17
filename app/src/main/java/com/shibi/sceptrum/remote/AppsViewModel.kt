@@ -3,13 +3,19 @@ package com.shibi.sceptrum.remote
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.shibi.sceptrum.data.DeviceRepository
+import com.shibi.sceptrum.data.LearnedAppsRepository
 import com.shibi.sceptrum.data.active
 import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.domain.AppShortcutError
 import com.shibi.sceptrum.domain.AppShortcuts
+import com.shibi.sceptrum.domain.LearnedAppTile
+import com.shibi.sceptrum.domain.LearnedApps
 import com.shibi.sceptrum.session.RemoteSession
 import com.shibi.sceptrum.store.AppShortcut
+import com.shibi.sceptrum.store.DeviceLearnedApps
+import com.shibi.sceptrum.store.LearnedAppsStore
 import com.shibi.sceptrum.store.PairedDevice
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -17,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -36,6 +43,8 @@ data class AppsUiState(
     val currentApp: AppShortcut? = null,
     /** Edits need a saved device to hold them. */
     val canEdit: Boolean = false,
+    /** Apps this TV reported that [shortcuts] does not open yet, most seen first. */
+    val learned: List<LearnedAppTile> = emptyList(),
 )
 
 /**
@@ -43,12 +52,14 @@ data class AppsUiState(
  * package or URL, add the TV's current app, reorder and remove. The order is
  * kept per device in the encrypted device store. Only links that pass
  * [AppShortcuts.isAllowed] are added, shown or sent; a stored tile that fails
- * is left out and logged once.
+ * is left out and logged once. Apps the TV reported ([learnedApps]) follow
+ * the grid as their own tiles, and can be removed for good.
  */
 class AppsViewModel(
     private val repository: DeviceRepository,
     private val session: RemoteSession,
     private val errors: ErrorLog? = null,
+    private val learnedApps: LearnedAppsRepository? = null,
 ) : ViewModel() {
     private val editing = MutableStateFlow(false)
     private val form = MutableStateFlow(AddAppForm())
@@ -61,8 +72,13 @@ class AppsViewModel(
     /** A launch did not go out (not connected or blocked link): Reject haptic. */
     val rejects: SharedFlow<Unit> = _rejects
 
+    private val learnedStore: Flow<LearnedAppsStore> = learnedApps?.store ?: flowOf(LearnedAppsStore())
+
+    /** Learned tiles for the last (device, grid, store) seen, so an unrelated update keeps the same list. */
+    private var learnedCache: Triple<DeviceLearnedApps?, List<AppShortcut>, List<LearnedAppTile>>? = null
+
     val state: StateFlow<AppsUiState> =
-        combine(repository.store, session.state, editing, form) { store, s, edit, f ->
+        combine(repository.store, learnedStore, session.state, editing, form) { store, learned, s, edit, f ->
             val device = store.active()
             reportBlocked(device)
             val list = AppShortcuts.effective(device)
@@ -73,8 +89,24 @@ class AppsViewModel(
                 form = f,
                 currentApp = current,
                 canEdit = device != null,
+                learned = learnedTiles(device?.let { learned.devices[it.id] }, list),
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppsUiState())
+
+    private fun learnedTiles(apps: DeviceLearnedApps?, curated: List<AppShortcut>): List<LearnedAppTile> {
+        val cached = learnedCache
+        if (cached != null && cached.first == apps && cached.second == curated) return cached.third
+        return LearnedApps.tiles(curated, apps).also { learnedCache = Triple(apps, curated, it) }
+    }
+
+    /** Removes a learned tile from the active device for good. */
+    fun removeLearned(packageName: String) {
+        val learned = learnedApps ?: return
+        viewModelScope.launch {
+            val id = repository.store.first().active()?.id ?: return@launch
+            learned.remove(id, packageName)
+        }
+    }
 
     fun launch(shortcut: AppShortcut) {
         if (!AppShortcuts.isAllowed(shortcut.link)) {
