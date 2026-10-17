@@ -174,6 +174,11 @@ class AppShortcutsTest {
         assertTrue(AppShortcuts.covers(AppShortcuts.defaults[0], "com.google.android.youtube.tv"))
         assertTrue(AppShortcuts.covers(AppShortcut("Kodi", "market://launch?id=org.xbmc.kodi"), "org.xbmc.kodi"))
         assertFalse(AppShortcuts.covers(AppShortcuts.defaults[0], "org.xbmc.kodi"))
+        // A user-typed YouTube link with a trailing slash or upper-case scheme still covers it.
+        assertTrue(AppShortcuts.covers(AppShortcut("YT", "HTTPS://www.youtube.com/"), "com.google.android.youtube.tv"))
+        assertTrue(AppShortcuts.covers(AppShortcut("Netflix", "https://www.netflix.com/title/"), "com.netflix.ninja"))
+        assertTrue(AppShortcuts.covers(AppShortcut("Plex", "plex://"), "com.plexapp.android"))
+        assertFalse(AppShortcuts.covers(AppShortcut("Other", "https://www.youtube.com/watch"), "com.google.android.youtube.tv"))
     }
 
     @Test

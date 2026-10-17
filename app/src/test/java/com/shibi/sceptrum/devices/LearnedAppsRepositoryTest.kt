@@ -18,7 +18,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -122,6 +124,45 @@ class LearnedAppsRepositoryTest {
         assertEquals(2, entries.size)
         assertTrue(entries.all { it.step == "Learned apps" })
         assertTrue(entries.last().chain.single().contains("disk full"))
+    }
+
+    @Test
+    fun aFailedReadIsLoggedShownEmptyThenRetried() = runBlocking {
+        val errors = ErrorLog(File(tmp.root, "errors.log"), "test", "JVM")
+        val store = TestStores.MemoryDataStore(LearnedAppsStore()).apply { failReads.set(1) }
+        val flaky = LearnedAppsRepository(store, scope, errors)
+        val seen = java.util.concurrent.CopyOnWriteArrayList<LearnedAppsStore>()
+        val job = scope.launch { flaky.store.collect { seen += it } }
+        flaky.record("mac:01", "org.xbmc.kodi")
+        // After the retry, later writes reach the collector: the tiles never freeze on the empty value.
+        withTimeout(5_000) { while (seen.lastOrNull()?.devices?.get("mac:01") == null) delay(20) }
+        assertEquals(LearnedAppsStore(), seen.first())
+        assertEquals("Learned apps", errors.entries.value.single().step)
+        job.cancel()
+    }
+
+    @Test
+    fun aForgottenDeviceIsNotLearnedAgainAndBlankIdsAreRefused() = runBlocking {
+        val saved = mutableSetOf("mac:01")
+        val guarded = TestStores.memoryLearnedApps(scope, deviceExists = { it in saved })
+        assertTrue(guarded.record("mac:01", "org.xbmc.kodi"))
+        saved.clear()
+        guarded.forgetDevice("mac:01")
+        assertFalse("a late report after forgetting", guarded.record("mac:01", "tv.pluto.android"))
+        assertFalse(guarded.remove("", "org.xbmc.kodi"))
+        assertTrue(guarded.store.first().devices.isEmpty())
+    }
+
+    @Test
+    fun theTimeIsTakenWhenTheTvReportsNotWhenTheWriteRuns() {
+        val slow = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        var clock = 100L
+        val timed = TestStores.memoryLearnedApps(slow, clock = { clock })
+        timed.onForegroundApp("mac:01", "org.xbmc.kodi")
+        clock = 999
+        val stored = runBlocking { withTimeout(5_000) { timed.store.first { it.devices["mac:01"] != null } } }
+        assertEquals(100, stored.devices.getValue("mac:01").apps.single().last_seen_ms)
+        slow.cancel()
     }
 
     @Test

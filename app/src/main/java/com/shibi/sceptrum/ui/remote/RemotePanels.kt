@@ -48,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -77,6 +78,7 @@ import com.shibi.sceptrum.domain.AppBadge
 import com.shibi.sceptrum.domain.AppShortcutError
 import com.shibi.sceptrum.domain.AppShortcuts
 import com.shibi.sceptrum.domain.LearnedAppTile
+import com.shibi.sceptrum.domain.LearnedApps
 import com.shibi.sceptrum.domain.RemoteKey
 import com.shibi.sceptrum.domain.StandbyTip
 import com.shibi.sceptrum.domain.SwipeStepper
@@ -233,6 +235,7 @@ fun AppsPane(
     modifier: Modifier = Modifier,
 ) {
     val dark = !LocalBackgroundChrome.current.isLight
+    var showAll by rememberSaveable { mutableStateOf(false) }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(AppTileMinWidth),
         modifier = modifier,
@@ -240,9 +243,16 @@ fun AppsPane(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        appsSection(state, actions, dark, trailing = {
-            SmallIconKey(Icons.Rounded.Close, stringResource(R.string.apps_close), size = 40.dp, onClick = onClose)
-        })
+        appsSection(
+            state,
+            actions,
+            dark,
+            showAllLearned = showAll,
+            onShowAllLearned = { showAll = it },
+            trailing = {
+                SmallIconKey(Icons.Rounded.Close, stringResource(R.string.apps_close), size = 40.dp, onClick = onClose)
+            },
+        )
     }
 }
 
@@ -250,12 +260,15 @@ fun AppsPane(
  * The apps section of a lazy grid: a header card with Edit/Done, the curated
  * tiles, the tiles learned from this TV under "Seen on this TV", and a footer
  * card with "Add current app", the add form or a hint. [dark] picks the badge
- * tone; it is read once by the caller rather than in every item.
+ * tone; it is read once by the caller rather than in every item. Past
+ * [LearnedApps.PREVIEW] learned tiles, the rest wait for [showAllLearned].
  */
 fun LazyGridScope.appsSection(
     state: AppsUiState,
     actions: AppsActions,
     dark: Boolean,
+    showAllLearned: Boolean = false,
+    onShowAllLearned: (Boolean) -> Unit = {},
     trailing: @Composable () -> Unit = {},
 ) {
     item(key = "apps-header", contentType = "apps-header", span = { GridItemSpan(maxLineSpan) }) {
@@ -280,7 +293,9 @@ fun LazyGridScope.appsSection(
         item(key = "learned-header", contentType = "learned-header", span = { GridItemSpan(maxLineSpan) }) {
             LearnedHeader()
         }
-        items(state.learned, key = { "learned:${it.packageName}" }, contentType = { "learned-tile" }) { app ->
+        val overflow = state.learned.size > LearnedApps.PREVIEW
+        val shown = if (overflow && !showAllLearned) state.learned.take(LearnedApps.PREVIEW) else state.learned
+        items(shown, key = { "learned:${it.packageName}" }, contentType = { "learned-tile" }) { app ->
             LearnedTile(
                 app = app,
                 dark = dark,
@@ -288,6 +303,18 @@ fun LazyGridScope.appsSection(
                 onLaunch = { actions.onLaunch(app.shortcut) },
                 onRemove = { actions.onRemoveLearned(app.packageName) },
             )
+        }
+        if (overflow) {
+            item(key = "learned-more", contentType = "learned-more", span = { GridItemSpan(maxLineSpan) }) {
+                PillButton(
+                    text = if (showAllLearned) {
+                        stringResource(R.string.apps_show_fewer)
+                    } else {
+                        stringResource(R.string.apps_show_all, state.learned.size)
+                    },
+                    onClick = { onShowAllLearned(!showAllLearned) },
+                )
+            }
         }
     }
     val current = state.currentApp
@@ -480,12 +507,13 @@ private fun LearnedTile(
     val fill = glassFill()
     val seen = stringResource(R.string.apps_seen_on_tv)
     val removeLabel = stringResource(R.string.apps_remove, app.label)
+    val optionsLabel = stringResource(R.string.apps_learned_options, app.label)
     val interaction = if (editing) {
         Modifier
     } else {
         // combinedClickable gives the long-press haptic itself.
         Modifier.clip(shape).combinedClickable(
-            onLongClickLabel = removeLabel,
+            onLongClickLabel = optionsLabel,
             onLongClick = { menuOpen = true },
             onClick = {
                 haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)

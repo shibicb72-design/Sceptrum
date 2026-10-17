@@ -22,7 +22,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 
 /**
@@ -36,27 +38,35 @@ class LearnedAppsRepository(
     private val scope: CoroutineScope,
     private val errors: ErrorLog? = null,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** False for a device id no longer saved, so a late write never brings a forgotten TV's apps back. */
+    private val deviceExists: suspend (String) -> Boolean = { true },
 ) : ForegroundAppListener {
-    /** Every device's learned apps; an unreadable file reads as empty (and is logged). */
-    val store: Flow<LearnedAppsStore> = dataStore.data.catch { e ->
-        if (e is IOException) {
+    /**
+     * Every device's learned apps. A read error is logged and shows as empty,
+     * then the read is retried, so later writes still reach the tiles.
+     */
+    val store: Flow<LearnedAppsStore> = dataStore.data
+        .retryWhen { e, attempt ->
+            if (e !is IOException || attempt >= READ_RETRIES) return@retryWhen false
             errors?.record(STEP, "Could not read the learned apps", e)
             emit(LearnedAppsStore())
-        } else {
-            throw e
+            delay(READ_RETRY_MS * (attempt + 1))
+            true
         }
-    }
+        .catch { e -> if (e is IOException) emit(LearnedAppsStore()) else throw e }
 
     /** Learns [appPackage] for [deviceId] in the background; see [record]. */
     override fun onForegroundApp(deviceId: String, appPackage: String) {
         if (!LearnedApps.isLearnable(appPackage)) return
-        scope.launch { record(deviceId, appPackage) }
+        // The time is taken now, not when the write runs: two quick reports may write in either order.
+        val seenAt = clock()
+        scope.launch { record(deviceId, appPackage, seenAt) }
     }
 
-    /** Remembers that [deviceId] showed [appPackage] now. False when nothing was saved. */
-    suspend fun record(deviceId: String, appPackage: String): Boolean {
-        if (deviceId.isEmpty() || !LearnedApps.isLearnable(appPackage)) return false
-        return edit("Could not save the app the TV opened", deviceId) { LearnedApps.record(it, appPackage, clock()) }
+    /** Remembers that [deviceId] showed [appPackage] at [nowMs]. False when nothing was saved (or it was removed). */
+    suspend fun record(deviceId: String, appPackage: String, nowMs: Long = clock()): Boolean {
+        if (!LearnedApps.isLearnable(appPackage) || !deviceExists(deviceId)) return false
+        return edit("Could not save the app the TV opened", deviceId) { LearnedApps.record(it, appPackage, nowMs) }
     }
 
     /** Removes [appPackage] from [deviceId]'s tiles for good. */
@@ -67,12 +77,18 @@ class LearnedAppsRepository(
     suspend fun forgetDevice(deviceId: String): Boolean =
         update("Could not clear the learned apps") { it.copy(devices = it.devices - deviceId) }
 
-    private suspend fun edit(failure: String, deviceId: String, change: (DeviceLearnedApps) -> DeviceLearnedApps): Boolean =
-        update(failure) { store ->
+    /** Applies [change] to [deviceId]'s entry; true only when it changed and was saved. */
+    private suspend fun edit(failure: String, deviceId: String, change: (DeviceLearnedApps) -> DeviceLearnedApps): Boolean {
+        if (deviceId.isEmpty()) return false
+        var changed = false
+        val saved = update(failure) { store ->
             val before = store.devices[deviceId] ?: DeviceLearnedApps()
             val after = change(before)
-            if (after == before) store else store.copy(devices = store.devices + (deviceId to after))
+            changed = after != before
+            if (changed) store.copy(devices = store.devices + (deviceId to after)) else store
         }
+        return saved && changed
+    }
 
     private suspend fun update(failure: String, change: (LearnedAppsStore) -> LearnedAppsStore): Boolean =
         try {
@@ -88,14 +104,21 @@ class LearnedAppsRepository(
 
     companion object {
         private const val STEP = "Learned apps"
+        private const val READ_RETRIES = 3L
+        private const val READ_RETRY_MS = 1_000L
         private const val FILE_NAME = "learned_apps.pb"
         val ASSOCIATED_DATA: ByteArray = "sceptrum-learned-apps-v1".encodeToByteArray()
 
         /** One per process: DataStore must own its file alone. */
-        fun create(context: Context, scope: CoroutineScope, errors: ErrorLog?): LearnedAppsRepository {
+        fun create(
+            context: Context,
+            scope: CoroutineScope,
+            errors: ErrorLog?,
+            deviceExists: suspend (String) -> Boolean,
+        ): LearnedAppsRepository {
             val aead by lazy { DeviceStoreCrypto.aead(context) }
             val store = create({ aead }) { File(context.filesDir, "datastore/$FILE_NAME") }
-            return LearnedAppsRepository(store, scope, errors)
+            return LearnedAppsRepository(store, scope, errors, deviceExists = deviceExists)
         }
 
         /** A file that no longer decrypts is wiped: the apps are learned again. */

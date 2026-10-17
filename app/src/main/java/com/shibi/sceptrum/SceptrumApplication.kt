@@ -32,6 +32,7 @@ import com.shibi.sceptrum.settings.RemoteSettingsViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 
 class SceptrumApplication : Application() {
     val graph: AppGraph by lazy { AppGraph(this) }
@@ -60,7 +61,9 @@ class AppGraph(context: Context) {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** Apps each TV reported as its foreground app (docs/apps-list-options.md, Option A). */
-    val learnedApps: LearnedAppsRepository by lazy { LearnedAppsRepository.create(app, appScope, errorLog) }
+    val learnedApps: LearnedAppsRepository by lazy {
+        LearnedAppsRepository.create(app, appScope, errorLog) { id -> deviceRepository.devices.first().any { it.id == id } }
+    }
 
     val sessionManager: SessionManager by lazy {
         SessionManager(

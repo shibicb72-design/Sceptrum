@@ -53,6 +53,27 @@ class LearnedAppsTest {
         for (text in listOf("", "kodi", "not a package", "1com.bad", "com.ok.app#x")) {
             assertSame(text, empty, LearnedApps.record(empty, text, 1))
         }
+        // A TV can send any string up to the 1 MB frame cap; only package-sized ones are kept.
+        val huge = "com." + "a".repeat(1 shl 20)
+        assertSame(empty, LearnedApps.record(empty, huge, 1))
+        val longest = "com." + "a".repeat(AppShortcuts.MAX_PACKAGE - 4)
+        assertEquals(1, LearnedApps.record(empty, longest, 1).apps.size)
+        assertSame(empty, LearnedApps.record(empty, longest + "b", 1))
+    }
+
+    @Test
+    fun theAppJustSeenSurvivesTheCapEvenIfTheClockWentBack() {
+        var apps = empty
+        for (i in 0 until LearnedApps.MAX) apps = LearnedApps.record(apps, "com.example.app$i", 5_000)
+        val after = LearnedApps.record(apps, "com.example.newcomer", 1_000)
+        assertEquals(LearnedApps.MAX, after.apps.size)
+        assertTrue(after.apps.any { it.package_name == "com.example.newcomer" })
+    }
+
+    @Test
+    fun aRepeatedPackageInAStoredFileGivesOneTile() {
+        val apps = DeviceLearnedApps(apps = listOf(LearnedApp("org.xbmc.kodi", 1, 1, 1), LearnedApp("org.xbmc.kodi", 1, 2, 2)))
+        assertEquals(listOf("org.xbmc.kodi"), LearnedApps.tiles(AppShortcuts.defaults, apps).map { it.packageName })
     }
 
     @Test

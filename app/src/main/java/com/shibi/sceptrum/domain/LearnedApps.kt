@@ -25,6 +25,9 @@ object LearnedApps {
     /** Apps kept per device; the least recently seen goes first. */
     const val MAX = 40
 
+    /** Learned tiles shown before "Show all", so the cards below the grid stay near. */
+    const val PREVIEW = 9
+
     /** Removed packages kept per device, so a removal sticks; the oldest removal goes first. */
     const val MAX_REMOVED = 100
 
@@ -97,8 +100,10 @@ object LearnedApps {
         } else {
             apps.apps + LearnedApp(package_name = appPackage, first_seen_ms = nowMs, last_seen_ms = nowMs, seen_count = 1)
         }
-        val capped = if (updated.size <= MAX) updated else updated.sortedByDescending { it.last_seen_ms }.take(MAX)
-        return apps.copy(apps = capped)
+        if (updated.size <= MAX) return apps.copy(apps = updated)
+        // The app just seen always stays, even if the phone clock went back and its time is not the latest.
+        val (current, others) = updated.partition { it.package_name == appPackage }
+        return apps.copy(apps = others.sortedByDescending { it.last_seen_ms }.take(MAX - current.size) + current)
     }
 
     /** [apps] without [appPackage], which is remembered as removed so it is not learned again. */
@@ -125,6 +130,8 @@ object LearnedApps {
         return ordered(apps.apps)
             .asSequence()
             .map { it.package_name }
+            // A file from elsewhere could repeat a package; a repeated lazy key would crash the grid.
+            .distinct()
             .filter { isLearnable(it) && it !in apps.removed }
             .filter { pkg -> curated.none { AppShortcuts.covers(it, pkg) } }
             .map { pkg -> LearnedAppTile(pkg, AppShortcuts.labelForPackage(pkg), AppShortcuts.launchLinkFor(pkg)) }

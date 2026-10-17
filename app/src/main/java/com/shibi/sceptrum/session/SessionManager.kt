@@ -63,7 +63,10 @@ interface RemoteSession {
 
 /** Hears each foreground app a TV reports; the learned-apps store in the app, a list in tests. */
 fun interface ForegroundAppListener {
-    /** Called once per change of [appPackage] on [deviceId]; must not block. */
+    /**
+     * Called when [deviceId] reports a foreground app other than its last one;
+     * must not block. A very fast switch (A, B, A) can be conflated and B missed.
+     */
     fun onForegroundApp(deviceId: String, appPackage: String)
 }
 
@@ -128,17 +131,19 @@ class SessionManager(
     }
 
     /**
-     * Passes each new foreground app to [listener]. The same app after a
-     * reconnect counts again (the TV reports it afresh), a repeat of the same
-     * report does not.
+     * Passes each foreground app change to [listener]. The last app is kept per
+     * device across disconnects, so a reconnect (or the hang-up after an app
+     * link) that reports the same app again does not count it twice.
      */
     private fun watchForegroundApp(listener: ForegroundAppListener) {
         scope.launch {
+            val lastApp = HashMap<String, String>()
             state
                 .map { s -> s.deviceId?.let { id -> s.currentApp?.let { id to it } } }
                 .distinctUntilChanged()
                 .collect { seen ->
                     val (deviceId, app) = seen ?: return@collect
+                    if (lastApp.put(deviceId, app) == app) return@collect
                     try {
                         listener.onForegroundApp(deviceId, app)
                     } catch (e: CancellationException) {

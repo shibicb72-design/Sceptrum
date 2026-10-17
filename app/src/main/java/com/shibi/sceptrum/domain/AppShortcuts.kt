@@ -189,8 +189,14 @@ object AppShortcuts {
         return core.trimEnd('_').ifEmpty { part }.capitalised()
     }
 
-    /** True for a package id like com.example.app. */
-    fun isPackage(text: String): Boolean = Package.matches(text)
+    /**
+     * True for a package id like com.example.app, at most [MAX_PACKAGE] long:
+     * a TV reports any string up to the 1 MB frame cap, and each one is stored.
+     */
+    fun isPackage(text: String): Boolean = text.length <= MAX_PACKAGE && Package.matches(text)
+
+    /** Longer than any real Android package name. */
+    const val MAX_PACKAGE = 255
 
     /** The link that opens [appPackage]: its known deep link, else `market://launch?id=<package>`. */
     fun launchLinkFor(appPackage: String): String = knownPackages[appPackage]?.deepLink ?: (MARKET_PREFIX + appPackage)
@@ -199,8 +205,18 @@ object AppShortcuts {
      * True when [tile] already opens [appPackage]: its market launch link, or the
      * known deep link for it (the YouTube default covers com.google.android.youtube.tv).
      */
-    fun covers(tile: AppShortcut, appPackage: String): Boolean =
-        tile.link == MARKET_PREFIX + appPackage || tile.link == knownPackages[appPackage]?.deepLink
+    fun covers(tile: AppShortcut, appPackage: String): Boolean {
+        val link = comparable(tile.link)
+        return link == MARKET_PREFIX + appPackage || knownPackages[appPackage]?.deepLink?.let { comparable(it) == link } == true
+    }
+
+    /** [link] with a lower-case scheme and no trailing "/" after a host, so "HTTPS://www.youtube.com/" matches the default. */
+    private fun comparable(link: String): String {
+        val text = link.trim()
+        val scheme = schemeOf(text) ?: return text
+        val rest = text.substring(scheme.length + 1)
+        return "$scheme:" + if (rest.length > 2 && rest.endsWith("/")) rest.dropLast(1) else rest
+    }
 
     /** What a tile's badge colour comes from: the package it opens when known, else its link. */
     fun badgeSeed(link: String): String =
@@ -214,7 +230,7 @@ object AppShortcuts {
 
     /** "Add current app": the package the TV last reported in `remote_ime_key_inject`. */
     fun forPackage(appPackage: String): AppShortcut? {
-        if (!Package.matches(appPackage)) return null
+        if (!isPackage(appPackage)) return null
         val link = MARKET_PREFIX + appPackage
         return AppShortcut(labelForPackage(appPackage), link)
     }

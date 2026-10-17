@@ -10,6 +10,7 @@ import com.shibi.sceptrum.domain.DiscoveredRow
 import com.shibi.sceptrum.domain.ManualAddress
 import com.shibi.sceptrum.domain.PairingTarget
 import com.shibi.sceptrum.domain.SavedRow
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ManualEntry(
     val text: String = "",
@@ -113,9 +115,12 @@ class DevicesViewModel(
     fun confirmForget() {
         val edit = editing.value ?: return
         editing.value = null
+        // Both deletions finish even if the screen closes right after the tap.
         viewModelScope.launch {
-            repository.forget(edit.id)
-            learnedApps?.forgetDevice(edit.id)
+            withContext(NonCancellable) {
+                repository.forget(edit.id)
+                learnedApps?.forgetDevice(edit.id)
+            }
         }
     }
 

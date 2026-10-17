@@ -13,6 +13,9 @@ import com.shibi.sceptrum.store.DeviceStore
 import com.shibi.sceptrum.store.LearnedAppsStore
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,14 +50,22 @@ object TestStores {
         errors: ErrorLog? = null,
         clock: () -> Long = System::currentTimeMillis,
         initial: LearnedAppsStore = LearnedAppsStore(),
-    ) = LearnedAppsRepository(MemoryDataStore(initial), scope, errors, clock)
+        deviceExists: suspend (String) -> Boolean = { true },
+    ) = LearnedAppsRepository(MemoryDataStore(initial), scope, errors, clock, deviceExists)
 
-    /** A DataStore over memory; [failWrites] makes every update throw, as a full disk would. */
+    /**
+     * A DataStore over memory; [failWrites] makes every update throw, as a full
+     * disk would, and [failReads] makes that many reads throw before one succeeds.
+     */
     class MemoryDataStore<T>(initial: T) : DataStore<T> {
         private val state = MutableStateFlow(initial)
         private val lock = Mutex()
         var failWrites: Boolean = false
-        override val data: Flow<T> = state
+        val failReads = AtomicInteger(0)
+        override val data: Flow<T> = flow {
+            if (failReads.getAndUpdate { maxOf(0, it - 1) } > 0) throw IOException("read failed")
+            emitAll(state)
+        }
 
         override suspend fun updateData(transform: suspend (t: T) -> T): T =
             lock.withLock {

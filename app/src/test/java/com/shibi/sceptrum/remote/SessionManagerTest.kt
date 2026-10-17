@@ -278,6 +278,32 @@ class SessionManagerTest {
     }
 
     @Test
+    fun aReconnectReportingTheSameAppDoesNotCountItAgain() {
+        val reports = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+        val m = SessionManager(
+            active, { AtvFixtures.client }, scope, config, network, graceMs = 300,
+            foregroundApps = { id, app -> reports += id to app },
+        )
+        val tv = tv()
+        active.value = tv.asDevice("Projector")
+        m.acquire()
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+        tv.pushCurrentApp("com.netflix.ninja")
+        eventually { reports.isNotEmpty() }
+
+        // The TV hangs up (as after an app link) and reports the same app on reconnect.
+        tv.dropConnections()
+        runBlocking { withTimeout(8_000) { m.state.first { it.currentApp == null } } }
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+        tv.pushCurrentApp("com.netflix.ninja")
+        runBlocking { withTimeout(8_000) { m.state.first { it.currentApp == "com.netflix.ninja" } } }
+        tv.pushCurrentApp("org.xbmc.kodi")
+        eventually { reports.size >= 2 }
+        assertEquals(listOf("mac:Projector" to "com.netflix.ninja", "mac:Projector" to "org.xbmc.kodi"), reports.toList())
+        m.release()
+    }
+
+    @Test
     fun aFailingListenerIsLoggedAndTheSessionCarriesOn() {
         val log = errorLog()
         val m = SessionManager(

@@ -15,6 +15,9 @@ import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -80,6 +83,20 @@ class LearnedTilesTest {
         compose.onNode(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.ContentDescription, listOf("Remove Kodi")))
             .performClick()
         assertEquals(listOf("org.xbmc.kodi"), removed)
+    }
+
+    @Test
+    fun manyLearnedAppsWaitBehindShowAll() {
+        val many = (1..12).map { LearnedAppTile("com.vendor.app$it", "App $it", "market://launch?id=com.vendor.app$it") }
+        show({ 400 }, AppsActions(), AppsUiState(canEdit = true, learned = many))
+        val grid = compose.onNode(hasScrollToNodeAction())
+        grid.performScrollToNode(hasText("Show all 12"))
+        compose.onNodeWithText("Show all 12").performClick()
+        grid.performScrollToNode(hasText("App 12"))
+        compose.onNodeWithText("App 12").assertExists()
+        grid.performScrollToNode(hasText("Show fewer"))
+        compose.onNodeWithText("Show fewer").performClick()
+        compose.onNodeWithText("App 12").assertDoesNotExist()
     }
 
     @Test

@@ -183,9 +183,8 @@ class AppsViewModelTest {
 
         withLearned.removeLearned("tv.pluto.android")
         assertEquals(listOf("Kodi"), await { it.learned.size == 1 }.learned.map { it.label })
-        runBlocking { learned.record("mac:01", "tv.pluto.android") }
-        Thread.sleep(100)
-        assertEquals("the removal sticks", listOf("Kodi"), withLearned.state.value.learned.map { it.label })
+        assertFalse("the removal sticks", runBlocking { learned.record("mac:01", "tv.pluto.android") })
+        assertEquals(listOf("Kodi"), withLearned.state.value.learned.map { it.label })
         job.cancel()
     }
 

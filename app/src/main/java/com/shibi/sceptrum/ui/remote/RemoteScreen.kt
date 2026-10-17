@@ -35,6 +35,10 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Swipe
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -254,26 +258,30 @@ private fun MediaKey(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
 }
 
 /**
- * Apps, keyboard and number pad beside the remote when there is room: one
- * lazy grid, so the app tiles (curated plus up to 40 learned) are lazy and
- * the cards below them scroll with them.
+ * Keyboard, apps and number pad beside the remote when there is room. The
+ * keyboard card stays on top, outside the scrolling grid, so its field keeps
+ * focus (a lazy item scrolled away is disposed and the IME would close). The
+ * apps and number pad share one lazy grid; learned tiles past
+ * [com.shibi.sceptrum.domain.LearnedApps.PREVIEW] wait behind "Show all" so
+ * the number pad stays near.
  */
 @Composable
 internal fun SidePanel(actions: RemoteActions, extras: RemoteExtras, modifier: Modifier = Modifier) {
     val dark = !LocalBackgroundChrome.current.isLight
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(AppTileMinWidth),
-        modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        appsSection(extras.apps, extras.appsActions, dark)
-        item(key = "keyboard", contentType = "keyboard", span = { GridItemSpan(maxLineSpan) }) {
-            KeyboardCard(extras.keyboard, extras.typing, modifier = Modifier.padding(top = 6.dp))
-        }
-        item(key = "numbers", contentType = "numbers", span = { GridItemSpan(maxLineSpan) }) {
-            NumbersCard(actions, modifier = Modifier.padding(top = 6.dp))
+    var showAll by rememberSaveable { mutableStateOf(false) }
+    Column(modifier) {
+        KeyboardCard(extras.keyboard, extras.typing, modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 6.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(AppTileMinWidth),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            appsSection(extras.apps, extras.appsActions, dark, showAllLearned = showAll, onShowAllLearned = { showAll = it })
+            item(key = "numbers", contentType = "numbers", span = { GridItemSpan(maxLineSpan) }) {
+                NumbersCard(actions, modifier = Modifier.padding(top = 6.dp))
+            }
         }
     }
 }
