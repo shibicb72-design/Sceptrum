@@ -72,6 +72,7 @@ import com.shibi.sceptrum.ui.remote.RemoteExtras
 import com.shibi.sceptrum.ui.remote.RemotePanel
 import com.shibi.sceptrum.ui.remote.RemoteScreen
 import com.shibi.sceptrum.ui.remote.TypingActions
+import com.shibi.sceptrum.ui.settings.ErrorLogScreen
 import com.shibi.sceptrum.ui.settings.SettingsScreen
 import com.shibi.sceptrum.ui.theme.SceptrumTheme
 
@@ -157,16 +158,34 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
                     val graph = LocalContext.current.appGraph
                     val settings: RemoteSettingsViewModel = viewModel(factory = graph.viewModelFactory)
                     val keyPressTyping by settings.keyPressTyping.collectAsStateWithLifecycle()
-                    SettingsScreen(
-                        widthClass = widthClass,
-                        darkTheme = darkTheme,
-                        background = background,
-                        onDarkThemeChange = appearance::setDarkTheme,
-                        onSelectBackground = appearance::selectBackground,
-                        keyPressTyping = keyPressTyping,
-                        onKeyPressTypingChange = settings::setKeyPressTyping,
-                        versionName = remember(graph) { graph.versionName() },
-                    )
+                    val errorEntries by graph.errorLog.entries.collectAsStateWithLifecycle()
+                    var showErrorLog by rememberSaveable { mutableStateOf(false) }
+                    if (showErrorLog) {
+                        BackHandler { showErrorLog = false }
+                        ErrorLogScreen(
+                            report = remember(errorEntries) { graph.errorLog.report() },
+                            entryCount = errorEntries.size,
+                            onCopyAll = {
+                                val label = context.getString(R.string.error_log_clip_label)
+                                context.getSystemService(ClipboardManager::class.java)
+                                    ?.setPrimaryClip(ClipData.newPlainText(label, graph.errorLog.report()))
+                            },
+                            onBack = { showErrorLog = false },
+                        )
+                    } else {
+                        SettingsScreen(
+                            widthClass = widthClass,
+                            darkTheme = darkTheme,
+                            background = background,
+                            onDarkThemeChange = appearance::setDarkTheme,
+                            onSelectBackground = appearance::selectBackground,
+                            keyPressTyping = keyPressTyping,
+                            onKeyPressTypingChange = settings::setKeyPressTyping,
+                            versionName = remember(graph) { graph.versionName() },
+                            errorCount = errorEntries.size,
+                            onOpenErrorLog = { showErrorLog = true },
+                        )
+                    }
                 }
             }
         }

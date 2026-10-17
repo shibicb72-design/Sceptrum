@@ -4,10 +4,12 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.shibi.sceptrum.domain.AppBackground
 import com.shibi.sceptrum.ui.SceptrumFrame
 import com.shibi.sceptrum.ui.settings.ErrorLogScreen
+import com.shibi.sceptrum.ui.settings.SettingsScreen
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -74,5 +76,26 @@ class ErrorLogScreenTest {
         }
         compose.onNodeWithText("Back").performClick()
         assertEquals(1, backs)
+    }
+
+    @Test
+    fun settingsDebuggingCardOpensTheLog() {
+        var opened = 0
+        compose.setContent {
+            SceptrumFrame(darkTheme = true, background = AppBackground.Default) { widthClass ->
+                SettingsScreen(
+                    widthClass = widthClass,
+                    darkTheme = true,
+                    background = AppBackground.Default,
+                    onDarkThemeChange = {},
+                    onSelectBackground = {},
+                    errorCount = 2,
+                    onOpenErrorLog = { opened++ },
+                )
+            }
+        }
+        compose.onNodeWithText("Debugging / Error log").performScrollTo().assertExists()
+        compose.onNodeWithText("Open error log").performScrollTo().performClick()
+        assertEquals(1, opened)
     }
 }
