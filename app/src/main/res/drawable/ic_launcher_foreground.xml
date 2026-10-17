@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sceptrum: a Roman sceptre. Cross-topped orb, eagle wings, gilded staff with collars.
+     All art stays inside the 66dp safe circle centred on (54,54). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFF2C14E"
+        android:pathData="M49.5,43.5C43.5,43.5 38.5,40 35.5,32C40,36.5 44.5,38.5 49.5,39.5ZM58.5,39.5C63.5,38.5 68,36.5 72.5,32C69.5,40 64.5,43.5 58.5,43.5Z" />
+    <path
+        android:fillColor="#FFE9B23C"
+        android:pathData="M52,44h4v36h-4Z" />
+    <path
+        android:fillColor="#FFC9952A"
+        android:pathData="M49.5,41h9a1.5,1.5 0,0 1,0 3h-9a1.5,1.5 0,0 1,0 -3ZM50.5,60h7a1.25,1.25 0,0 1,0 2.5h-7a1.25,1.25 0,0 1,0 -2.5ZM51,80h6l-1,3h-4ZM52.2,85a1.8,1.8 0,1 1,3.6 0a1.8,1.8 0,1 1,-3.6 0Z" />
+    <path
+        android:fillColor="#FFFFE7A3"
+        android:pathData="M53,22h2v2.5h2.5v2h-2.5v3h-2v-3h-2.5v-2h2.5Z" />
+    <path
+        android:fillColor="#FFF7D272"
+        android:pathData="M48,35a6,6 0,1 1,12 0a6,6 0,1 1,-12 0Z" />
+    <path
+        android:fillColor="#FFC9952A"
+        android:pathData="M48.3,34h11.4v2h-11.4Z" />
+</vector>

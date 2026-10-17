@@ -8,4 +8,15 @@ A free Wi-Fi universal remote for Android (Kotlin, Jetpack Compose, Material 3),
 
 See [docs/SCEPTRUM_plan.md](docs/SCEPTRUM_plan.md) for the plan and [docs/REMOTE_research.md](docs/REMOTE_research.md) for background research.
 
+## Build
+
+Needs JDK 17 and the Android SDK (platform 36). Point Gradle at the SDK with `ANDROID_HOME` or a `local.properties` file (`sdk.dir=...`, not committed).
+
+```sh
+./gradlew assembleDebug test           # debug APK + unit tests (Windows: gradlew.bat)
+./gradlew recordRoborazziDebug         # screenshots -> app/build/outputs/roborazzi/
+```
+
+The APK lands in `app/build/outputs/apk/debug/`. GitHub Actions ("Android CI") runs the same steps on every push to `main` and every pull request, and uploads the `debug-apk` and `screenshots` artifacts.
+
 Licensed under the Apache License 2.0.
