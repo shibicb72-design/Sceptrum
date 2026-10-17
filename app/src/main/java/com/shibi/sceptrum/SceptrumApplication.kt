@@ -12,12 +12,21 @@ import com.shibi.sceptrum.data.KeystoreClientIdentityProvider
 import com.shibi.sceptrum.devices.DevicesViewModel
 import com.shibi.sceptrum.discovery.NsdTvDiscovery
 import com.shibi.sceptrum.discovery.TvDiscovery
+import com.shibi.sceptrum.domain.LanAccess
+import com.shibi.sceptrum.domain.LanAccessState
 import com.shibi.sceptrum.pairing.AtvPairingGateway
 import com.shibi.sceptrum.pairing.PairingGateway
 import com.shibi.sceptrum.pairing.PairingViewModel
+import com.shibi.sceptrum.power.ConnectivityLanAddress
+import com.shibi.sceptrum.power.UdpWaker
+import com.shibi.sceptrum.power.Waker
+import com.shibi.sceptrum.remote.AppsViewModel
+import com.shibi.sceptrum.remote.KeyboardViewModel
 import com.shibi.sceptrum.remote.RemoteViewModel
 import com.shibi.sceptrum.session.ConnectivityNetworkEvents
 import com.shibi.sceptrum.session.SessionManager
+import com.shibi.sceptrum.settings.RemotePreferences
+import com.shibi.sceptrum.settings.RemoteSettingsViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -56,13 +65,28 @@ class AppGraph(context: Context) {
         )
     }
 
+    val remotePreferences: RemotePreferences by lazy { RemotePreferences(app) }
+
+    /** Wake-on-LAN to the subnet broadcast of the phone's current network. */
+    val waker: Waker by lazy { UdpWaker(ConnectivityLanAddress(app)) }
+
     val viewModelFactory: ViewModelProvider.Factory = viewModelFactory {
         initializer { DevicesViewModel(deviceRepository, discovery) }
         initializer { PairingViewModel(pairingGateway, deviceRepository) }
-        initializer { RemoteViewModel(sessionManager) }
+        initializer { RemoteViewModel(sessionManager, waker) }
+        initializer { KeyboardViewModel(sessionManager, remotePreferences.keyPressTyping) }
+        initializer { AppsViewModel(deviceRepository, sessionManager) }
+        initializer { RemoteSettingsViewModel(remotePreferences) }
     }
 
-    private fun versionName(): String =
+    /** Plan §8: LAN access as Android sees it; always allowed while targetSdk is 36. */
+    fun lanAccess(): LanAccessState = LanAccess.classify(
+        sdkInt = Build.VERSION.SDK_INT,
+        targetSdk = app.applicationInfo.targetSdkVersion,
+        granted = false,
+    )
+
+    fun versionName(): String =
         runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull() ?: "0"
 }
 

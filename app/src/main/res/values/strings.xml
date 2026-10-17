@@ -44,6 +44,66 @@
     <string name="status_open_devices">Pair</string>
     <string name="volume_level">Vol %1$d / %2$d</string>
     <string name="volume_muted">Vol %1$d / %2$d · Muted</string>
+    <string name="remote_apps">Apps</string>
+    <string name="remote_keyboard">Keyboard</string>
+    <string name="remote_swipe_pad">Swipe pad</string>
+    <string name="remote_dpad_buttons">D-pad buttons</string>
+    <string name="remote_swipe_hint">Swipe to move · tap for OK</string>
+    <string name="remote_welcome_title">Welcome to Sceptrum</string>
+    <string name="remote_welcome_body">Sceptrum talks to your TV over your home Wi-Fi: no account and no cloud. Put the phone and the TV on the same Wi-Fi, then pair once with the code the TV shows.</string>
+    <string name="remote_welcome_action">Find my TV</string>
+
+    <!-- Keyboard bar -->
+    <string name="keyboard_title">Keyboard</string>
+    <string name="keyboard_type_on_tv">Type on TV</string>
+    <string name="keyboard_type_on_app">Type on TV · %1$s</string>
+    <string name="keyboard_select_field">Select a search box on the TV first.</string>
+    <string name="keyboard_key_presses_note">Typing with key presses: capitals type as lower case, and it may not work in every app.</string>
+    <string name="keyboard_field_label">Text</string>
+    <string name="keyboard_backspace">Delete</string>
+    <string name="keyboard_enter">Enter</string>
+    <string name="keyboard_clear">Clear</string>
+    <string name="keyboard_close">Close keyboard</string>
+    <string name="keyboard_not_connected">Connect to the TV to type.</string>
+
+    <!-- Apps -->
+    <string name="apps_title">Apps</string>
+    <string name="apps_edit">Edit</string>
+    <string name="apps_done">Done</string>
+    <string name="apps_close">Close apps</string>
+    <string name="apps_move_earlier">Move %1$s earlier</string>
+    <string name="apps_move_later">Move %1$s later</string>
+    <string name="apps_remove">Remove %1$s</string>
+    <string name="apps_add_title">Add app</string>
+    <string name="apps_add_link_label">Package or link</string>
+    <string name="apps_add_link_hint">com.example.app or https://…</string>
+    <string name="apps_add_name_label">Name (optional)</string>
+    <string name="apps_add">Add</string>
+    <string name="apps_add_current">Add current app: %1$s</string>
+    <string name="apps_reset">Reset to defaults</string>
+    <string name="apps_error_invalid">Enter a package like com.example.app or a link like https://www.youtube.com.</string>
+    <string name="apps_error_duplicate">That app is already in the grid.</string>
+    <string name="apps_error_full">The grid is full. Remove an app first.</string>
+    <string name="apps_pair_to_edit">Pair a TV to change its apps.</string>
+
+    <!-- Power -->
+    <string name="power_waking">Waking %1$s…</string>
+    <string name="power_waking_no_packet">Trying to reach %1$s…</string>
+    <string name="power_failed_title">Couldn\'t wake %1$s</string>
+    <string name="power_failed_body">It may be fully off, or its network sleeps in standby. Turn it on with its own remote this time, and check these settings on it:</string>
+    <string name="power_try_again">Try again</string>
+    <string name="power_dismiss">Dismiss</string>
+    <string name="tip_network_standby">In the TV\'s power settings, turn on Network standby, Wake on LAN / Wi-Fi or Quick start (names differ by brand).</string>
+    <string name="tip_tcl_screenless">TCL: Settings > System > Power &amp; energy > turn on Screenless service.</string>
+    <string name="tip_xgimi_wifi_only">XGIMI projectors are Wi-Fi only. In Settings > Device preferences > Power, look for a network standby or Wake on Wi-Fi option and turn it on; without it, power on with the projector\'s remote.</string>
+    <string name="tip_prefer_ethernet">Waking over Wi-Fi is unreliable. If the TV has an Ethernet port, use a cable.</string>
+    <string name="tip_no_mac">Sceptrum doesn\'t know this TV\'s network (MAC) address, so it could not send a wake packet.</string>
+    <string name="tip_deep_sleep">Eco or deep standby switches the network off; nothing on the network can wake the TV then.</string>
+
+    <!-- Local network access (plan §8) -->
+    <string name="lan_blocked_title">Sceptrum can\'t reach your TV</string>
+    <string name="lan_blocked_body">Network access to nearby devices is off for Sceptrum. Allow it under Permissions > Nearby devices.</string>
+    <string name="lan_open_settings">Open settings</string>
 
     <!-- Devices -->
     <string name="devices_title">Devices</string>
@@ -68,6 +128,17 @@
     <string name="devices_ip_tip">Tip: reserve this address for the TV in your router so it never changes.</string>
     <string name="devices_detail_title">Device details</string>
     <string name="devices_detail_body">Pick a device to see its status here.</string>
+    <string name="devices_edit">Rename or forget %1$s</string>
+    <string name="devices_edit_title">Device</string>
+    <string name="devices_name_label">Name</string>
+    <string name="devices_address">Address: %1$s</string>
+    <string name="devices_mac">Network (MAC) address: %1$s</string>
+    <string name="devices_mac_unknown">Network (MAC) address unknown: power-on over the network is not possible.</string>
+    <string name="devices_save">Save</string>
+    <string name="devices_forget">Forget</string>
+    <string name="devices_forget_confirm">Forget %1$s? You will need to pair it again.</string>
+    <string name="devices_forget_yes">Forget device</string>
+    <string name="devices_close">Close</string>
 
     <!-- Pairing -->
     <string name="pairing_title">Pair with %1$s</string>
@@ -102,7 +173,18 @@
     <string name="settings_solids">Pastels</string>
     <string name="settings_blends">Blends</string>
     <string name="settings_about">About</string>
-    <string name="settings_about_body">Sceptrum is a Wi-Fi remote for Google TV, more brands later.</string>
+    <string name="settings_about_body">Sceptrum is a Wi-Fi remote for Google TV, more brands later. It talks to your TV only over your home network: no account and no cloud.</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_keyboard">Keyboard</string>
+    <string name="settings_key_presses">Type with key presses</string>
+    <string name="settings_key_presses_body">For apps that ignore the keyboard. Sends letters and digits as remote keys; may not work in every app.</string>
+    <string name="settings_licences">Open-source licences</string>
+    <string name="licence_androidtvremote2">androidtvremote2 by tronikos: protocol files and the Android TV Remote v2 client logic. Apache License 2.0.</string>
+    <string name="licence_pairing_protocol">Google TV pairing protocol (polo.proto), Android Open Source Project. Apache License 2.0.</string>
+    <string name="licence_tink">Google Tink: encryption of saved devices. Apache License 2.0.</string>
+    <string name="licence_wire">Square Wire: protocol buffers. Apache License 2.0.</string>
+    <string name="licence_androidx">AndroidX, Jetpack Compose, Material 3 and Kotlin coroutines. Apache License 2.0.</string>
+    <string name="licence_full_text">Full licence text: apache.org/licenses/LICENSE-2.0. Notices are in the NOTICE file of the source code.</string>
 
     <!-- Background names -->
     <string name="bg_default">Midnight</string>

@@ -1,5 +1,8 @@
 package com.shibi.sceptrum.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -18,6 +21,10 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -33,26 +40,35 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.flow.merge
 import com.shibi.sceptrum.appGraph
 import com.shibi.sceptrum.appearance.AppearanceViewModel
 import com.shibi.sceptrum.devices.DevicesUiState
 import com.shibi.sceptrum.devices.DevicesViewModel
 import com.shibi.sceptrum.domain.AppBackground
+import com.shibi.sceptrum.domain.LanAccessState
 import com.shibi.sceptrum.domain.PairingUiState
 import com.shibi.sceptrum.domain.WindowWidthClass
 import com.shibi.sceptrum.domain.shownWith
 import com.shibi.sceptrum.ui.background.AppBackgroundHost
 import com.shibi.sceptrum.pairing.PairingViewModel
+import com.shibi.sceptrum.remote.AppsViewModel
+import com.shibi.sceptrum.remote.KeyboardViewModel
 import com.shibi.sceptrum.remote.RemoteHaptic
 import com.shibi.sceptrum.remote.RemoteViewModel
+import com.shibi.sceptrum.settings.RemoteSettingsViewModel
 import com.shibi.sceptrum.ui.devices.DevicesActions
 import com.shibi.sceptrum.ui.devices.DevicesScreen
 import com.shibi.sceptrum.ui.nav.NavCarousel
 import com.shibi.sceptrum.ui.nav.NavSection
 import com.shibi.sceptrum.ui.nav.SectionRoutes
 import com.shibi.sceptrum.ui.pairing.PairingActions
+import com.shibi.sceptrum.ui.remote.AppsActions
 import com.shibi.sceptrum.ui.remote.RemoteActions
+import com.shibi.sceptrum.ui.remote.RemoteExtras
+import com.shibi.sceptrum.ui.remote.RemotePanel
 import com.shibi.sceptrum.ui.remote.RemoteScreen
+import com.shibi.sceptrum.ui.remote.TypingActions
 import com.shibi.sceptrum.ui.settings.SettingsScreen
 import com.shibi.sceptrum.ui.theme.SceptrumTheme
 
@@ -73,6 +89,12 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
     val pairingState by pairing.state.collectAsStateWithLifecycle()
     val deviceActions = DevicesActions(
         onSelect = devices::select,
+        onEdit = devices::edit,
+        onRenameChange = devices::onRenameChange,
+        onSaveRename = devices::saveRename,
+        onAskForget = devices::askForget,
+        onConfirmForget = devices::confirmForget,
+        onCloseEdit = devices::closeEdit,
         onPair = { pairing.begin(devices.targetFor(it)) },
         onRefresh = devices::refresh,
         onManualChange = devices::onManualChange,
@@ -112,6 +134,9 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
                         onDispose { devices.stopScan() }
                     }
                     BackHandler(enabled = pairingState != PairingUiState.Idle) { pairing.cancel() }
+                    BackHandler(enabled = pairingState == PairingUiState.Idle && devicesState.editing != null) {
+                        devices.closeEdit()
+                    }
                     DevicesScreen(
                         widthClass = widthClass,
                         state = devicesState,
@@ -121,12 +146,18 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
                     )
                 }
                 composable(SectionRoutes.Settings) {
+                    val graph = LocalContext.current.appGraph
+                    val settings: RemoteSettingsViewModel = viewModel(factory = graph.viewModelFactory)
+                    val keyPressTyping by settings.keyPressTyping.collectAsStateWithLifecycle()
                     SettingsScreen(
                         widthClass = widthClass,
                         darkTheme = darkTheme,
                         background = background,
                         onDarkThemeChange = appearance::setDarkTheme,
                         onSelectBackground = appearance::selectBackground,
+                        keyPressTyping = keyPressTyping,
+                        onKeyPressTypingChange = settings::setKeyPressTyping,
+                        versionName = remember(graph) { graph.versionName() },
                     )
                 }
             }
@@ -145,9 +176,18 @@ private fun RemoteRoute(
     deviceActions: DevicesActions,
     onOpenDevices: () -> Unit,
 ) {
-    val graph = LocalContext.current.appGraph
+    val context = LocalContext.current
+    val graph = context.appGraph
     val remote: RemoteViewModel = viewModel(factory = graph.viewModelFactory)
+    val keyboard: KeyboardViewModel = viewModel(factory = graph.viewModelFactory)
+    val apps: AppsViewModel = viewModel(factory = graph.viewModelFactory)
     val session by remote.state.collectAsStateWithLifecycle()
+    val power by remote.power.collectAsStateWithLifecycle()
+    val keyboardState by keyboard.state.collectAsStateWithLifecycle()
+    val appsState by apps.state.collectAsStateWithLifecycle()
+    var panel by rememberSaveable { mutableStateOf(RemotePanel.None) }
+    var swipeMode by rememberSaveable { mutableStateOf(false) }
+    val lanBlocked = remember(graph) { graph.lanAccess() == LanAccessState.Blocked }
     val haptics = LocalHapticFeedback.current
     LifecycleStartEffect(graph) {
         graph.sessionManager.acquire()
@@ -163,6 +203,14 @@ private fun RemoteRoute(
             )
         }
     }
+    LaunchedEffect(keyboard, apps) {
+        merge(keyboard.rejects, apps.rejects).collect { haptics.performHapticFeedback(HapticFeedbackType.Reject) }
+    }
+    // The TV focused a text field: open the keyboard bar. Unfolded, the keyboard card is always shown.
+    LaunchedEffect(keyboard) {
+        keyboard.openRequests.collect { if (panel == RemotePanel.None) panel = RemotePanel.Keyboard }
+    }
+    BackHandler(enabled = panel != RemotePanel.None) { panel = RemotePanel.None }
     RemoteScreen(
         widthClass = widthClass,
         session = session,
@@ -175,6 +223,41 @@ private fun RemoteRoute(
         ),
         devices = devicesState,
         deviceActions = deviceActions,
+        extras = RemoteExtras(
+            keyboard = keyboardState,
+            typing = TypingActions(
+                onTextChange = keyboard::onTextChange,
+                onBackspace = keyboard::backspace,
+                onEnter = keyboard::enter,
+                onClear = keyboard::clear,
+            ),
+            apps = appsState,
+            appsActions = AppsActions(
+                onLaunch = apps::launch,
+                onEditing = apps::setEditing,
+                onLabelChange = apps::onLabelChange,
+                onLinkChange = apps::onLinkChange,
+                onSubmit = apps::submit,
+                onAddCurrent = apps::addCurrentApp,
+                onRemove = apps::remove,
+                onMoveUp = apps::moveUp,
+                onMoveDown = apps::moveDown,
+                onReset = apps::resetToDefaults,
+            ),
+            power = power,
+            onDismissPower = remote::dismissPowerTip,
+            panel = panel,
+            onPanel = { panel = it },
+            swipeMode = swipeMode,
+            onSwipeMode = { swipeMode = it },
+            autoFocusKeyboard = true,
+            lanBlocked = lanBlocked,
+            onOpenLanSettings = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+                )
+            },
+        ),
     )
 }
 
