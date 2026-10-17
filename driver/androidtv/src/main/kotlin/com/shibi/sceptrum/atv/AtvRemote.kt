@@ -179,6 +179,7 @@ class AtvRemoteClient(
         loop?.cancel()
         loop = null
         current?.close()
+        current = null
         _state.update { it.disconnected().copy(link = LinkState.Idle) }
     }
 
@@ -335,9 +336,14 @@ class AtvRemoteClient(
         @Volatile
         private var negotiated = config.requestedFeatures
 
-        fun send(message: RemoteMessage): Boolean = outbox.trySend(message.encode()).isSuccess
+        fun send(message: RemoteMessage): Boolean = !closed && outbox.trySend(message.encode()).isSuccess
 
+        @Volatile
+        private var closed = false
+
+        /** Safe from any thread; nothing more is accepted for sending. */
         fun close() {
+            closed = true
             runCatching { socket.close() }
         }
 

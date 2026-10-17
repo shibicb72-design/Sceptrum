@@ -16,6 +16,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okio.ByteString.Companion.toByteString
 
+/** What a TV's pairing port reveals before pairing. */
+class TvProbe(val identity: TvIdentity, val serverSha256: ByteArray)
+
 /** Why pairing stopped. Each maps to one error card in the pairing screen. */
 enum class PairingFailure {
     /** The typed code fails the first-byte check. Nothing was sent; the session stays open. */
@@ -140,6 +143,35 @@ class AtvPairingSession private constructor(
                     serverCertificate = serverCert,
                     serverName = ack.pairing_request_ack?.server_name,
                 )
+            }
+        }
+
+        /**
+         * Connects to the pairing port only to read the TV's certificate, for
+         * its name and MAC (androidtvremote2 `async_get_name_and_mac`). The TV
+         * shows nothing.
+         * @throws PairingException [PairingFailure.Unreachable], [PairingFailure.Timeout]
+         *   or [PairingFailure.Rejected].
+         */
+        suspend fun probe(
+            host: String,
+            identity: ClientIdentity,
+            port: Int = DEFAULT_PORT,
+            timeouts: PairingTimeouts = PairingTimeouts(connectMs = 2_000, stepMs = 5_000),
+        ): TvProbe = withContext(Dispatchers.IO) {
+            val trust = CapturingTrustManager()
+            val socket = try {
+                AtvTls.connect(host, port, AtvTls.sslContext(identity, trust), timeouts.connectMs, timeouts.stepMs)
+            } catch (e: UnreachableException) {
+                throw PairingException(PairingFailure.Unreachable, "Cannot reach $host:$port", e)
+            } catch (e: SocketTimeoutException) {
+                throw PairingException(PairingFailure.Timeout, "TLS handshake timed out", e)
+            } catch (e: IOException) {
+                throw PairingException(PairingFailure.Rejected, "TLS handshake failed", e)
+            }
+            socket.use {
+                val cert = trust.serverCertificate ?: throw PairingException(PairingFailure.Rejected, "TV sent no certificate")
+                TvProbe(CertificateNames.parse(cert), AtvTls.sha256(cert))
             }
         }
 
