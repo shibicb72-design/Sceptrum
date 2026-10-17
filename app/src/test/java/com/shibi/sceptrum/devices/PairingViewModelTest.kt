@@ -1,8 +1,10 @@
 package com.shibi.sceptrum.devices
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.shibi.sceptrum.atv.PairingDiagnostics
 import com.shibi.sceptrum.atv.PairingException
 import com.shibi.sceptrum.atv.PairingFailure
+import com.shibi.sceptrum.atv.PairingStep
 import com.shibi.sceptrum.domain.PairingError
 import com.shibi.sceptrum.domain.PairingTarget
 import com.shibi.sceptrum.domain.PairingUiState
@@ -40,7 +42,7 @@ class PairingViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
-        vm = PairingViewModel(gateway, repository, clock = { 42L })
+        vm = PairingViewModel(gateway, repository, clock = { 42L }, appVersion = "9.9.9")
     }
 
     @After
@@ -124,11 +126,46 @@ class PairingViewModelTest {
             PairingFailure.Unreachable to PairingError.Unreachable,
             PairingFailure.Timeout to PairingError.Timeout,
             PairingFailure.Rejected to PairingError.Rejected,
+            PairingFailure.Handshake to PairingError.Handshake,
+            PairingFailure.Dropped to PairingError.Dropped,
         )) {
             gateway.startFailure = failure
             vm.begin(target)
-            assertEquals(PairingUiState.Failed(target, error), awaitState { it is PairingUiState.Failed })
+            val failed = awaitState { it is PairingUiState.Failed } as PairingUiState.Failed
+            assertEquals(target, failed.target)
+            assertEquals(error, failed.error)
+            assertTrue(failed.report, failed.report.contains("error: ${failure.name}"))
         }
+    }
+
+    @Test
+    fun errorCardCarriesTheDriverDiagnostics() {
+        gateway.startDiagnostics = PairingDiagnostics(
+            failure = PairingFailure.Handshake,
+            step = PairingStep.TlsHandshake,
+            host = "10.0.0.242",
+            port = 6467,
+            errors = listOf("javax.net.ssl.SSLHandshakeException: certificate_required"),
+            keyAlgorithm = "RSA",
+            keyBits = 2048,
+            keySource = "software",
+        )
+        gateway.startFailure = PairingFailure.Handshake
+        vm.begin(target)
+        val failed = awaitState { it is PairingUiState.Failed } as PairingUiState.Failed
+        assertEquals(PairingError.Handshake, failed.error)
+        assertEquals(gateway.startDiagnostics!!.report("9.9.9"), failed.report)
+        assertTrue(failed.report.contains("app version: 9.9.9"))
+        assertTrue(failed.report.contains("device: 10.0.0.242:6467"))
+    }
+
+    @Test
+    fun failureWithoutDiagnosticsStillNamesTheTarget() {
+        gateway.startFailure = PairingFailure.Timeout
+        vm.begin(target)
+        val report = (awaitState { it is PairingUiState.Failed } as PairingUiState.Failed).report
+        assertTrue(report, report.contains("device: 192.168.1.50:6467"))
+        assertTrue(report, report.contains("error: Timeout"))
     }
 
     @Test
@@ -137,7 +174,7 @@ class PairingViewModelTest {
         vm.begin(target)
         awaitState { it is PairingUiState.EnterCode }
         vm.onCodeChange("4FA1C9")
-        assertEquals(PairingUiState.Failed(target, PairingError.Timeout), awaitState { it is PairingUiState.Failed })
+        assertEquals(PairingError.Timeout, (awaitState { it is PairingUiState.Failed } as PairingUiState.Failed).error)
         assertTrue(gateway.attempts.single().closed)
 
         gateway.onSubmit = {}
@@ -166,13 +203,14 @@ class PairingViewModelTest {
         val starts = mutableListOf<PairingTarget>()
         val attempts = mutableListOf<FakeAttempt>()
         var startFailure: PairingFailure? = null
+        var startDiagnostics: PairingDiagnostics? = null
         var beforeStart: suspend () -> Unit = {}
         var onSubmit: (String) -> Unit = {}
 
         override suspend fun start(target: PairingTarget): PairingAttempt {
             starts += target
             beforeStart()
-            startFailure?.let { throw PairingException(it, "scripted") }
+            startFailure?.let { throw PairingException(it, "scripted", diagnostics = startDiagnostics) }
             return FakeAttempt { onSubmit(it) }.also { attempts += it }
         }
 

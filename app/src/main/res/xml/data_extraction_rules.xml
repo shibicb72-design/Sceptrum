@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Nothing is backed up or transferred. Paired devices are sealed with a key
-    that lives in this phone's Keystore and never restores, so a copy would be
-    unreadable; the TLS client key cannot leave the Keystore either.
+    Nothing is backed up or transferred. Paired devices and the TLS client key
+    are sealed with a key that lives in this phone's Keystore and never
+    restores, so a copy would be unreadable.
 -->
 <data-extraction-rules>
     <cloud-backup>

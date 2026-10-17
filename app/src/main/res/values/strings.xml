@@ -86,6 +86,13 @@
     <string name="pairing_error_bad_secret">That code doesn\'t match. The TV now shows a new code.</string>
     <string name="pairing_error_rejected">The TV refused pairing.</string>
     <string name="pairing_error_rejected_hint">Close any pairing message on the TV, then try again.</string>
+    <string name="pairing_error_handshake">Couldn\'t set up a secure connection with the TV.</string>
+    <string name="pairing_error_handshake_hint">The TV may have refused this phone\'s certificate. Tap Copy details and send the report.</string>
+    <string name="pairing_error_dropped">The TV ended the connection.</string>
+    <string name="pairing_error_dropped_hint">Close any pairing message on the TV, then try again. If it keeps happening, tap Copy details and send the report.</string>
+    <string name="pairing_copy_details">Copy details</string>
+    <string name="pairing_details_copied">Details copied</string>
+    <string name="pairing_details_clip_label">Sceptrum pairing report</string>
     <string name="pairing_error_timeout">No answer from the TV.</string>
     <string name="pairing_error_timeout_hint">Is it on and on the same Wi-Fi?</string>
     <string name="pairing_error_unreachable">Can\'t reach %1$s:%2$d.</string>

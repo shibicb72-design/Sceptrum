@@ -11,6 +11,9 @@ import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
+import com.shibi.sceptrum.atv.ClientIdentity
+import com.shibi.sceptrum.atv.SoftwareClientIdentity
+import com.shibi.sceptrum.store.ClientIdentityRecord
 import com.shibi.sceptrum.store.DeviceStore
 import com.shibi.sceptrum.store.PairedDevice
 import java.io.File
@@ -23,11 +26,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import okio.ByteString.Companion.toByteString
 
 /**
- * Paired devices and the active one, in a single DataStore file sealed with a
- * Tink AES-256-GCM key whose own key-encryption key lives in the Android
- * Keystore. The TLS private key is not in here: it stays in the Keystore.
+ * Paired devices, the active one and the phone's TLS client identity, in a
+ * single DataStore file sealed with a Tink AES-256-GCM key whose own
+ * key-encryption key lives in the Android Keystore.
  */
 class DeviceRepository(private val dataStore: DataStore<DeviceStore>) {
     val store: Flow<DeviceStore> = dataStore.data
@@ -77,6 +81,35 @@ class DeviceRepository(private val dataStore: DataStore<DeviceStore>) {
         dataStore.updateData { store ->
             store.copy(devices = store.devices.map { if (it.id == id) it.copy(features = features) else it })
         }
+    }
+
+    /**
+     * The stored client identity, or a new one from [create] saved in the same
+     * transaction. A record that no longer decodes is replaced.
+     */
+    suspend fun clientIdentity(create: () -> ClientIdentity): ClientIdentity {
+        var result: ClientIdentity? = null
+        dataStore.updateData { store ->
+            val stored = store.client_identity?.let { record ->
+                runCatching {
+                    SoftwareClientIdentity.decode(record.private_key_pkcs8.toByteArray(), record.certificate_der.toByteArray())
+                }.getOrNull()
+            }
+            if (stored != null) {
+                result = stored
+                store
+            } else {
+                val fresh = create().also { result = it }
+                store.copy(
+                    client_identity = ClientIdentityRecord(
+                        private_key_pkcs8 = fresh.privateKey.encoded.toByteString(),
+                        certificate_der = fresh.certificate.encoded.toByteString(),
+                        created_at_ms = System.currentTimeMillis(),
+                    ),
+                )
+            }
+        }
+        return checkNotNull(result)
     }
 
     companion object {

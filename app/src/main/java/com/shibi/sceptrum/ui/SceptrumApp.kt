@@ -1,5 +1,7 @@
 package com.shibi.sceptrum.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -33,6 +35,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.shibi.sceptrum.R
 import com.shibi.sceptrum.appGraph
 import com.shibi.sceptrum.appearance.AppearanceViewModel
 import com.shibi.sceptrum.devices.DevicesUiState
@@ -66,7 +69,8 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val section = SectionRoutes.sectionFor(backStackEntry?.destination?.route) ?: NavSection.Remote
-    val factory = LocalContext.current.appGraph.viewModelFactory
+    val context = LocalContext.current
+    val factory = context.appGraph.viewModelFactory
     val devices: DevicesViewModel = viewModel(factory = factory)
     val pairing: PairingViewModel = viewModel(factory = factory)
     val devicesState by devices.state.collectAsStateWithLifecycle()
@@ -85,6 +89,10 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
         onOpenRemote = {
             pairing.cancel()
             navController.openSection(NavSection.Remote)
+        },
+        onCopyDetails = { report ->
+            val label = context.getString(R.string.pairing_details_clip_label)
+            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(label, report))
         },
     )
 
