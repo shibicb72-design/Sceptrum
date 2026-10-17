@@ -16,12 +16,15 @@ import javax.net.ssl.X509ExtendedTrustManager
 
 /**
  * The phone's TLS client identity: one self-signed RSA certificate for every TV,
- * like the official app. On Android the key lives in the Keystore; JVM tests
- * use a software key from the fixtures.
+ * like the official app. On Android it is a [SoftwareClientIdentity] kept in
+ * the encrypted device store; JVM tests use fixed keys from the fixtures.
  */
 interface ClientIdentity {
     val certificate: X509Certificate
     val privateKey: PrivateKey
+
+    /** Where the key came from, for diagnostics: "software", "fixture". */
+    val source: String
 
     val publicKey: RSAPublicKey get() = certificate.publicKey as RSAPublicKey
 }
@@ -34,6 +37,7 @@ fun interface ClientIdentityProvider {
 class StaticClientIdentity(
     override val certificate: X509Certificate,
     override val privateKey: PrivateKey,
+    override val source: String = "static",
 ) : ClientIdentity
 
 /** The TV presented a different certificate from the one recorded at pairing. */
@@ -122,6 +126,7 @@ object AtvTls {
         context: SSLContext,
         connectTimeoutMs: Int,
         readTimeoutMs: Int,
+        onConnected: () -> Unit = {},
     ): SSLSocket {
         val raw = Socket()
         try {
@@ -131,6 +136,7 @@ object AtvTls {
             raw.close()
             throw UnreachableException(host, port, e)
         }
+        onConnected()
         val socket = context.socketFactory.createSocket(raw, host, port, true) as SSLSocket
         try {
             socket.useClientMode = true

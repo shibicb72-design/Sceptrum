@@ -8,7 +8,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.shibi.sceptrum.atv.RemoteConfig
 import com.shibi.sceptrum.data.DeviceRepository
-import com.shibi.sceptrum.data.KeystoreClientIdentityProvider
+import com.shibi.sceptrum.data.StoredClientIdentityProvider
 import com.shibi.sceptrum.devices.DevicesViewModel
 import com.shibi.sceptrum.discovery.NsdTvDiscovery
 import com.shibi.sceptrum.discovery.TvDiscovery
@@ -35,7 +35,7 @@ class AppGraph(context: Context) {
 
     val deviceRepository: DeviceRepository by lazy { DeviceRepository.create(app) }
     val discovery: TvDiscovery by lazy { NsdTvDiscovery(app) }
-    val clientIdentity by lazy { KeystoreClientIdentityProvider() }
+    val clientIdentity by lazy { StoredClientIdentityProvider(deviceRepository) }
 
     /** Shown on the TV while pairing, e.g. "Sceptrum (SM-F966B)". */
     val clientName: String = "Sceptrum (${Build.MODEL})"
@@ -58,7 +58,7 @@ class AppGraph(context: Context) {
 
     val viewModelFactory: ViewModelProvider.Factory = viewModelFactory {
         initializer { DevicesViewModel(deviceRepository, discovery) }
-        initializer { PairingViewModel(pairingGateway, deviceRepository) }
+        initializer { PairingViewModel(pairingGateway, deviceRepository, appVersion = versionName()) }
         initializer { RemoteViewModel(sessionManager) }
     }
 

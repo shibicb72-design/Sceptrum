@@ -195,6 +195,20 @@ class ScreenshotTest {
         pairing = PairingUiState.Failed(Target, PairingError.Rejected),
     )
 
+    @Test fun pairingHandshakeFoldedPastel() = shot(
+        "pairing_handshake_folded_pastel",
+        NavSection.Devices,
+        dark = false,
+        pairing = PairingUiState.Failed(Target, PairingError.Handshake),
+    )
+
+    @Test fun pairingDroppedFoldedDark() = shot(
+        "pairing_dropped_folded_dark",
+        NavSection.Devices,
+        dark = true,
+        pairing = PairingUiState.Failed(Target, PairingError.Dropped),
+    )
+
     @Config(qualifiers = Unfolded)
     @Test fun pairingUnreachableUnfoldedPastel() = shot(
         "pairing_unreachable_unfolded_pastel",

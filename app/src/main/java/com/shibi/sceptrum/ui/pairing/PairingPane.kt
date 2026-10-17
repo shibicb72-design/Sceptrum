@@ -24,6 +24,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -58,6 +62,8 @@ class PairingActions(
     val onRetry: () -> Unit = {},
     val onCancel: () -> Unit = {},
     val onOpenRemote: () -> Unit = {},
+    /** Puts the error report on the clipboard. */
+    val onCopyDetails: (String) -> Unit = {},
 )
 
 /** Pairing card: connecting, code entry, paired, or one error card (plan §5.5). */
@@ -82,7 +88,7 @@ fun PairingPane(
             when (state) {
                 is PairingUiState.Connecting -> Busy(stringResource(R.string.pairing_connecting, target.name))
                 is PairingUiState.EnterCode -> CodeEntry(state, actions)
-                is PairingUiState.Failed -> FailedCard(state.error, target, actions)
+                is PairingUiState.Failed -> FailedCard(state, actions)
                 is PairingUiState.Paired -> PairedCard(target, actions)
                 PairingUiState.Idle -> Unit
             }
@@ -189,12 +195,20 @@ private fun HexKeypad(enabled: Boolean, onDigit: (Char) -> Unit, onBackspace: ()
 }
 
 @Composable
-private fun FailedCard(error: PairingError, target: PairingTarget, actions: PairingActions) {
-    ErrorLine(errorMessage(error, target))
-    errorHint(error)?.let { hint ->
+private fun FailedCard(state: PairingUiState.Failed, actions: PairingActions) {
+    var copied by remember(state) { mutableStateOf(false) }
+    ErrorLine(errorMessage(state.error, state.target))
+    errorHint(state.error)?.let { hint ->
         Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     PillButton(text = stringResource(R.string.pairing_retry), onClick = actions.onRetry, primary = true)
+    PillButton(
+        text = stringResource(if (copied) R.string.pairing_details_copied else R.string.pairing_copy_details),
+        onClick = {
+            actions.onCopyDetails(state.report)
+            copied = true
+        },
+    )
 }
 
 @Composable
@@ -249,6 +263,8 @@ private fun errorMessage(error: PairingError, target: PairingTarget): String = w
     PairingError.WrongCode -> stringResource(R.string.pairing_error_wrong_code)
     PairingError.BadSecret -> stringResource(R.string.pairing_error_bad_secret)
     PairingError.Rejected -> stringResource(R.string.pairing_error_rejected)
+    PairingError.Handshake -> stringResource(R.string.pairing_error_handshake)
+    PairingError.Dropped -> stringResource(R.string.pairing_error_dropped)
     PairingError.Timeout -> stringResource(R.string.pairing_error_timeout)
     PairingError.Unreachable -> stringResource(R.string.pairing_error_unreachable, target.host, target.pairingPort)
 }
@@ -256,6 +272,8 @@ private fun errorMessage(error: PairingError, target: PairingTarget): String = w
 @Composable
 private fun errorHint(error: PairingError): String? = when (error) {
     PairingError.Rejected -> stringResource(R.string.pairing_error_rejected_hint)
+    PairingError.Handshake -> stringResource(R.string.pairing_error_handshake_hint)
+    PairingError.Dropped -> stringResource(R.string.pairing_error_dropped_hint)
     PairingError.Timeout -> stringResource(R.string.pairing_error_timeout_hint)
     PairingError.Unreachable -> stringResource(R.string.pairing_error_unreachable_hint)
     PairingError.WrongCode, PairingError.BadSecret -> null
