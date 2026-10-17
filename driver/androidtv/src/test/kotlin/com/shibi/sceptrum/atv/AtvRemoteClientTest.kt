@@ -180,9 +180,23 @@ class AtvRemoteClientTest {
         // A refused localhost connect takes about 2 s on Windows, so only the first steps are checked here;
         // the full schedule is backoffDoublesToTheCapAndResets.
         val first = remote.await(timeoutMs = 15_000) { it.link is LinkState.Retrying }.link as LinkState.Retrying
-        assertEquals(LinkState.Retrying(1, 50, DisconnectReason.Unreachable), first)
-        val second = remote.await(timeoutMs = 15_000) { (it.link as? LinkState.Retrying)?.attempt == 2 }.link
-        assertEquals(LinkState.Retrying(2, 100, DisconnectReason.Unreachable), second)
+        assertEquals(LinkState.Retrying(1, 50, DisconnectReason.Unreachable), first.copy(error = null))
+        assertTrue(first.error != null)
+        val second = remote.await(timeoutMs = 15_000) { (it.link as? LinkState.Retrying)?.attempt == 2 }.link as LinkState.Retrying
+        assertEquals(LinkState.Retrying(2, 100, DisconnectReason.Unreachable), second.copy(error = null))
+    }
+
+    @Test
+    fun retryingCarriesTheExceptionThatEndedTheConnection() {
+        val tv = server()
+        val port = tv.remotePort
+        tv.close()
+        val remote = AtvRemoteClient(tv.host, { AtvFixtures.client }, null, scope, fastConfig, port).also {
+            clients += it
+            it.start()
+        }
+        val retrying = remote.await(timeoutMs = 15_000) { it.link is LinkState.Retrying }.link as LinkState.Retrying
+        assertTrue(retrying.error != null)
     }
 
     @Test

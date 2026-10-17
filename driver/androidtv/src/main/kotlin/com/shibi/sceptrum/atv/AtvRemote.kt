@@ -116,6 +116,8 @@ sealed interface LinkState {
         val reason: DisconnectReason,
         /** The TV hung up within [RemoteConfig.appLinkGraceMs] of an app link. */
         val afterAppLink: Boolean = false,
+        /** What ended the last connection, when it was an exception. */
+        val error: Throwable? = null,
     ) : LinkState
 
     /** The TV refused this phone's certificate ("Need to pair again"). No more retries. */
@@ -287,6 +289,7 @@ class AtvRemoteClient(
             val ending = connectOnce()
             _state.update { it.disconnected() }
             var afterAppLink = false
+            var lastError: Throwable? = null
             val reason = when (ending) {
                 Ending.NeedsPairing -> {
                     _state.update { it.copy(link = LinkState.NeedsPairing) }
@@ -301,6 +304,7 @@ class AtvRemoteClient(
                         backoff.reset()
                         attempt = 0
                     }
+                    lastError = ending.error
                     afterAppLink = lastAppLinkAt != 0L &&
                         System.nanoTime() - lastAppLinkAt < config.appLinkGraceMs * NANOS_PER_MS
                     silentCloses = when {
@@ -320,7 +324,7 @@ class AtvRemoteClient(
             while (kick.tryReceive().isSuccess) {
                 // Drop retry requests made while still connected.
             }
-            _state.update { it.copy(link = LinkState.Retrying(attempt, wait, reason, afterAppLink)) }
+            _state.update { it.copy(link = LinkState.Retrying(attempt, wait, reason, afterAppLink, lastError)) }
             withTimeoutOrNull(wait) { kick.receive() }
         }
     }
@@ -358,17 +362,18 @@ class AtvRemoteClient(
             val wasReady: Boolean,
             /** TLS was up but the TV closed before sending a single message. */
             val closedSilently: Boolean = false,
+            val error: Throwable? = null,
         ) : Ending
     }
 
     private fun classify(error: Throwable, wasReady: Boolean): Ending {
         val chain = generateSequence(error) { it.cause }.toList()
         if (chain.any { it is PinMismatchException }) return Ending.PinMismatch
-        if (chain.any { it is UnreachableException }) return Ending.Retry(DisconnectReason.Unreachable, wasReady)
+        if (chain.any { it is UnreachableException }) return Ending.Retry(DisconnectReason.Unreachable, wasReady, error = error)
         val network = chain.any { it is SocketException || it is EOFException || it is SocketTimeoutException }
         // androidtvremote2 maps an SSL error before the session is up to InvalidAuth("Need to pair again").
         if (!wasReady && !network && chain.any { it is SSLException }) return Ending.NeedsPairing
-        return Ending.Retry(DisconnectReason.ConnectionLost, wasReady)
+        return Ending.Retry(DisconnectReason.ConnectionLost, wasReady, error = error)
     }
 
     private fun AtvState.disconnected() = copy(isOn = null, currentApp = null, imeField = null)
