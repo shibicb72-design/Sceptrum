@@ -65,6 +65,7 @@ private val Connected = SessionState(
     volume = VolumeInfo(level = 23, max = 100, muted = false),
     isOn = true,
 )
+private val NoChannels = Connected.copy(showChannelButtons = false)
 private val CodeEntry = PairingUiState.EnterCode(Target, code = "4FA")
 private val Offline = Connected.copy(status = ConnectionStatus.Offline, volume = null, isOn = null)
 private val KeyboardOpen = RemoteExtras(
@@ -338,6 +339,35 @@ class ScreenshotTest {
     @Config(qualifiers = Unfolded)
     @Test fun appsLearnedUnfoldedDark() =
         shot("apps_learned_unfolded_dark", NavSection.Remote, dark = true, session = Connected, extras = RemoteExtras(apps = LearnedSeveral))
+
+    /** The volume row with and without the CH rocker ("Show channel buttons", docs/channel-buttons.md). */
+    @Config(qualifiers = Narrow)
+    @Test fun channelsNarrowPastel() = shot("remote_channels_400_pastel", NavSection.Remote, dark = false, session = Connected)
+
+    @Config(qualifiers = Narrow)
+    @Test fun noChannelsNarrowPastel() = shot("remote_no_channels_400_pastel", NavSection.Remote, dark = false, session = NoChannels)
+
+    @Config(qualifiers = Narrow)
+    @Test fun noChannelsNarrowDark() = shot("remote_no_channels_400_dark", NavSection.Remote, dark = true, session = NoChannels)
+
+    @Config(qualifiers = Split)
+    @Test fun channelsSplitPastel() = shot("remote_channels_610_pastel", NavSection.Remote, dark = false, session = Connected)
+
+    @Config(qualifiers = Split)
+    @Test fun noChannelsSplitPastel() = shot("remote_no_channels_610_pastel", NavSection.Remote, dark = false, session = NoChannels)
+
+    @Config(qualifiers = Split)
+    @Test fun noChannelsSplitDark() = shot("remote_no_channels_610_dark", NavSection.Remote, dark = true, session = NoChannels)
+
+    @Config(qualifiers = Unfolded)
+    @Test fun noChannelsUnfoldedDark() = shot("remote_no_channels_unfolded_dark", NavSection.Remote, dark = true, session = NoChannels)
+
+    @Test fun deviceEditChannelsOffFoldedDark() = shot(
+        "device_edit_channels_off_folded_dark",
+        NavSection.Devices,
+        dark = true,
+        devices = SampleDevices.copy(editing = Editing.copy(showChannelButtons = false)),
+    )
 
     private fun learnedShot(name: String, apps: AppsUiState, dark: Boolean, panel: Boolean) = shot(
         name,

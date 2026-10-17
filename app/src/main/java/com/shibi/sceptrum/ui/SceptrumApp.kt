@@ -101,6 +101,7 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
             onEdit = devices::edit,
             onRenameChange = devices::onRenameChange,
             onSaveRename = devices::saveRename,
+            onShowChannelButtons = devices::setShowChannelButtons,
             onAskForget = devices::askForget,
             onConfirmForget = devices::confirmForget,
             onCloseEdit = devices::closeEdit,

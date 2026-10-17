@@ -84,7 +84,7 @@ class AppGraph(context: Context) {
     val waker: Waker by lazy { UdpWaker(ConnectivityLanAddress(app)) }
 
     val viewModelFactory: ViewModelProvider.Factory = viewModelFactory {
-        initializer { DevicesViewModel(deviceRepository, discovery, learnedApps = learnedApps) }
+        initializer { DevicesViewModel(deviceRepository, discovery, learnedApps = learnedApps, errors = errorLog) }
         initializer { PairingViewModel(pairingGateway, deviceRepository, appVersion = versionName(), errors = errorLog) }
         initializer { RemoteViewModel(sessionManager, waker) }
         initializer { KeyboardViewModel(sessionManager, remotePreferences.keyPressTyping) }
