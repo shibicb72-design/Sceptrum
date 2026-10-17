@@ -4,11 +4,13 @@ import com.shibi.sceptrum.atv.proto.remote.RemoteDirection
 import com.shibi.sceptrum.testing.atv.AtvFixtures
 import com.shibi.sceptrum.testing.atv.FakeAndroidTvServer
 import com.shibi.sceptrum.testing.atv.ReceivedKey
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -215,6 +217,36 @@ class AtvRemoteClientTest {
         assertTrue(remote.launchApp("com.android.tv.settings"))
         eventually { tv.appLinks.size == 2 }
         assertEquals(listOf("https://www.youtube.com", "market://launch?id=com.android.tv.settings"), tv.appLinks.toList())
+    }
+
+    @Test
+    fun appLinkTheTvCannotOpenReconnectsAndNeverAsksToPairAgain() {
+        val tv = server()
+        val remote = client(tv)
+        remote.await { it.link == LinkState.Connected }
+        val seen = CopyOnWriteArrayList<LinkState>()
+        val watcher = scope.launch { remote.state.collect { seen += it.link } }
+        tv.closeOnAppLink = true
+        tv.silentDrops.set(3)
+        assertTrue(remote.launchApp("https://www.netflix.com/title"))
+        eventually(10_000) { tv.remoteConnections.get() >= 5 } // 1 first + 3 empty closes + 1 good
+        tv.closeOnAppLink = false
+        remote.await(10_000) { it.link == LinkState.Connected }
+        watcher.cancel()
+        assertTrue(seen.none { it == LinkState.NeedsPairing })
+        val retries = seen.filterIsInstance<LinkState.Retrying>()
+        assertTrue(retries.isNotEmpty())
+        assertTrue(retries.all { it.afterAppLink })
+    }
+
+    @Test
+    fun hangUpsWithoutAnAppLinkStillMeanNeedsPairing() {
+        val tv = server()
+        val remote = client(tv)
+        remote.await { it.link == LinkState.Connected }
+        tv.silentDrops.set(10)
+        tv.dropConnections()
+        remote.await(10_000) { it.link == LinkState.NeedsPairing }
     }
 
     @Test

@@ -95,6 +95,12 @@ class FakeAndroidTvServer(
     /** Send `remote_start` after set_active. Off = the client never becomes ready. */
     @Volatile var sendStart: Boolean = true
 
+    /** Hang up the control connection right after an app link, like a TV whose remote service fails to open it. */
+    @Volatile var closeOnAppLink: Boolean = false
+
+    /** Close this many next control connections right after the TLS handshake, before sending anything. */
+    val silentDrops = AtomicInteger(0)
+
     @Volatile var powerOn: Boolean = true
 
     @Volatile var volume: RemoteSetVolumeLevel =
@@ -249,6 +255,10 @@ class FakeAndroidTvServer(
         // TLS 1.3 finishes the client side before the server checks its certificate; the
         // handshake call above already threw for an untrusted client, which closes the socket.
         remoteConnections.incrementAndGet()
+        if (silentDrops.getAndUpdate { if (it > 0) it - 1 else 0 } > 0) {
+            socket.close()
+            return
+        }
         val session = Live(socket)
         live += session
         val reader = FrameReader(socket.inputStream)
@@ -279,7 +289,13 @@ class FakeAndroidTvServer(
                     pushPower(!powerOn)
                 }
             }
-            message.remote_app_link_launch_request?.let { appLinks += it.app_link }
+            message.remote_app_link_launch_request?.let {
+                appLinks += it.app_link
+                if (closeOnAppLink) {
+                    socket.close()
+                    return
+                }
+            }
             message.remote_ime_batch_edit?.let { imeEdits += it }
         }
     }
