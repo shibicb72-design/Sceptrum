@@ -24,11 +24,15 @@ message PairedDevice {
   int64 last_seen_at_ms = 10;
   // Feature mask negotiated on the last session.
   int32 features = 11;
+  // Unused: the TV reports no tuner or live-TV signal (docs/channel-buttons.md).
   bool has_tuner = 12;
   // Apps grid in the user's order. Only read when app_shortcuts_edited is set;
   // until then the grid shows the built-in defaults.
   repeated AppShortcut app_shortcuts = 13;
   bool app_shortcuts_edited = 14;
+  // The user turned "Show channel buttons" off (projectors, streaming boxes).
+  // Inverted so devices saved before this field keep the rocker.
+  bool hide_channel_buttons = 15;
 }
 
 // One tile in the apps grid, launched with remote_app_link_launch_request.

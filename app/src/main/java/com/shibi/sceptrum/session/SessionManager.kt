@@ -43,6 +43,8 @@ data class SessionState(
     val currentApp: String? = null,
     /** The focused TV text field, null until the TV reports one. */
     val textField: ImeField? = null,
+    /** The device's "Show channel buttons" setting; on when there is no device. */
+    val showChannelButtons: Boolean = true,
 )
 
 /** The remote's view of the active device. Faked in view-model tests. */
@@ -278,7 +280,7 @@ class SessionManager(
         current.value?.client?.retryNow(dropCurrent)
     }
 
-    /** A rename or a new app grid keeps the live client; a new address, pin or device swaps it. */
+    /** A rename, a new app grid or a setting keeps the live client; a new address, pin or device swaps it. */
     @Synchronized
     private fun onActiveDevice(device: PairedDevice?) {
         val live = current.value
@@ -318,6 +320,7 @@ class SessionManager(
         vendor = this.device?.vendor?.ifEmpty { null },
         currentApp = currentApp,
         textField = imeField,
+        showChannelButtons = !device.hide_channel_buttons,
     )
 
     companion object {

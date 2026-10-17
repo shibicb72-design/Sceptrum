@@ -95,6 +95,11 @@ class DeviceRepository(private val dataStore: DataStore<DeviceStore>) {
         update(id) { it.copy(app_shortcuts = emptyList(), app_shortcuts_edited = false) }
     }
 
+    /** "Show channel buttons" for this device (docs/channel-buttons.md: the TV cannot tell us). */
+    suspend fun setShowChannelButtons(id: String, show: Boolean) {
+        update(id) { it.copy(hide_channel_buttons = !show) }
+    }
+
     private suspend fun update(id: String, change: (PairedDevice) -> PairedDevice) {
         dataStore.updateData { store ->
             store.copy(devices = store.devices.map { if (it.id == id) change(it) else it })
