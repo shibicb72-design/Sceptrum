@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Sceptrum"
 include(":app")
+include(":driver:androidtv")
+include(":testing:fakes")
