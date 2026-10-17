@@ -53,24 +53,36 @@ object AppShortcuts {
         AppShortcut("Settings", MARKET_PREFIX + "com.android.tv.settings"),
     )
 
-    /** Friendly names for packages a Google TV reports as the current app. */
-    private val knownPackages = mapOf(
-        "com.google.android.youtube.tv" to "YouTube",
-        "com.google.android.youtube.tvkids" to "YouTube Kids",
-        "com.google.android.youtube.tvmusic" to "YouTube Music",
-        "com.netflix.ninja" to "Netflix",
-        "com.amazon.amazonvideo.livingroom" to "Prime Video",
-        "com.disney.disneyplus" to "Disney+",
-        "com.plexapp.android" to "Plex",
-        "com.spotify.tv.android" to "Spotify",
-        "com.wbd.stream" to "Max",
-        "com.hulu.livingroomplus" to "Hulu",
-        "com.apple.atve.androidtv.appletv" to "Apple TV",
-        "org.xbmc.kodi" to "Kodi",
-        "com.android.tv.settings" to "Settings",
-        "com.google.android.tvlauncher" to "Home",
-        "com.google.android.apps.tv.launcherx" to "Home",
+    /** A package a Google TV reports as the current app: its name and, when one is in use already, a deep link. */
+    data class KnownApp(val label: String, val deepLink: String? = null)
+
+    /** Friendly names for packages a Google TV reports as the current app; the deep links are the defaults' links. */
+    val knownPackages: Map<String, KnownApp> = mapOf(
+        "com.google.android.youtube.tv" to KnownApp("YouTube", "https://www.youtube.com"),
+        "com.google.android.youtube.tvkids" to KnownApp("YouTube Kids"),
+        "com.google.android.youtube.tvmusic" to KnownApp("YouTube Music"),
+        "com.netflix.ninja" to KnownApp("Netflix", "https://www.netflix.com/title"),
+        "com.amazon.amazonvideo.livingroom" to KnownApp("Prime Video", "https://app.primevideo.com"),
+        "com.disney.disneyplus" to KnownApp("Disney+", "https://www.disneyplus.com"),
+        "com.plexapp.android" to KnownApp("Plex", "plex://"),
+        "com.spotify.tv.android" to KnownApp("Spotify"),
+        "com.wbd.stream" to KnownApp("Max"),
+        "com.hulu.livingroomplus" to KnownApp("Hulu"),
+        "com.apple.atve.androidtv.appletv" to KnownApp("Apple TV"),
+        "org.xbmc.kodi" to KnownApp("Kodi"),
+        "com.android.tv.settings" to KnownApp("Settings"),
+        "com.google.android.tvlauncher" to KnownApp("Home"),
+        "com.google.android.apps.tv.launcherx" to KnownApp("Home"),
     )
+
+    /** Package parts that say nothing about the app: "com.foo.bar.tv" is "Bar". */
+    private val genericParts = setOf(
+        "com", "org", "net", "tv", "atv", "androidtv", "android", "app", "apps", "mobile", "leanback",
+        "livingroom", "client", "player", "phone", "main", "ninja", "release", "prod", "free",
+    )
+
+    /** Endings dropped from the chosen part ("plutotv" is "Pluto"), longest first. */
+    private val genericSuffixes = listOf("androidtv", "android", "tv", "app")
 
     /**
      * The device's own grid once edited, else the defaults; no device shows the
@@ -158,15 +170,41 @@ object AppShortcuts {
      */
     fun labelFor(link: String): String {
         val pkg = packageOf(link)
-        if (pkg != null) {
-            return knownPackages[pkg] ?: pkg.substringAfterLast('.').capitalised()
-        }
+        if (pkg != null) return labelForPackage(pkg)
         defaults.firstOrNull { it.link == link }?.let { return it.label }
         val afterScheme = link.substringAfter("://", missingDelimiterValue = link.substringAfter(':'))
         val host = afterScheme.substringBefore('/').substringBefore('?')
         val core = host.removePrefix("www.").removePrefix("app.").substringBefore('.')
         return core.ifEmpty { link.substringBefore(':') }.capitalised()
     }
+
+    /** A known app name, else a readable name from the package: "tv.pluto.android" is "Pluto". */
+    fun labelForPackage(appPackage: String): String {
+        knownPackages[appPackage]?.let { return it.label }
+        val parts = appPackage.split('.').filter { it.isNotEmpty() }
+        val part = parts.lastOrNull { it.lowercase() !in genericParts } ?: parts.lastOrNull() ?: return appPackage
+        val lower = part.lowercase()
+        val suffix = genericSuffixes.firstOrNull { lower.endsWith(it) && part.length - it.length >= 3 }
+        val core = if (suffix == null) part else part.dropLast(suffix.length)
+        return core.trimEnd('_').ifEmpty { part }.capitalised()
+    }
+
+    /** True for a package id like com.example.app. */
+    fun isPackage(text: String): Boolean = Package.matches(text)
+
+    /** The link that opens [appPackage]: its known deep link, else `market://launch?id=<package>`. */
+    fun launchLinkFor(appPackage: String): String = knownPackages[appPackage]?.deepLink ?: (MARKET_PREFIX + appPackage)
+
+    /**
+     * True when [tile] already opens [appPackage]: its market launch link, or the
+     * known deep link for it (the YouTube default covers com.google.android.youtube.tv).
+     */
+    fun covers(tile: AppShortcut, appPackage: String): Boolean =
+        tile.link == MARKET_PREFIX + appPackage || tile.link == knownPackages[appPackage]?.deepLink
+
+    /** What a tile's badge colour comes from: the package it opens when known, else its link. */
+    fun badgeSeed(link: String): String =
+        packageOf(link) ?: knownPackages.entries.firstOrNull { it.value.deepLink == link }?.key ?: link
 
     /** A new tile from the add form, or null ([refusalFor] says why). A blank [label] is derived from the link. */
     fun parse(label: String, input: String): AppShortcut? {
@@ -178,7 +216,7 @@ object AppShortcuts {
     fun forPackage(appPackage: String): AppShortcut? {
         if (!Package.matches(appPackage)) return null
         val link = MARKET_PREFIX + appPackage
-        return AppShortcut(labelFor(link), link)
+        return AppShortcut(labelForPackage(appPackage), link)
     }
 
     /** Appends [shortcut], or says why not. */

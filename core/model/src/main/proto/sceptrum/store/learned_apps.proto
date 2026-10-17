@@ -1,0 +1,27 @@
+// Apps each TV has reported as its foreground app, stored encrypted (Tink
+// AEAD) in their own DataStore file next to the device store.
+syntax = "proto3";
+
+package sceptrum.store;
+
+option java_package = "com.shibi.sceptrum.store";
+
+// One package the TV reported in remote_ime_key_inject.app_info.
+message LearnedApp {
+  string package_name = 1;
+  int64 first_seen_ms = 2;
+  int64 last_seen_ms = 3;
+  // How many times the TV switched to it while Sceptrum was connected.
+  int32 seen_count = 4;
+}
+
+message DeviceLearnedApps {
+  repeated LearnedApp apps = 1;
+  // Packages the user removed; never learned again for this device.
+  repeated string removed = 2;
+}
+
+message LearnedAppsStore {
+  // Keyed by PairedDevice.id, which stays the same across re-pairing.
+  map<string, DeviceLearnedApps> devices = 1;
+}
