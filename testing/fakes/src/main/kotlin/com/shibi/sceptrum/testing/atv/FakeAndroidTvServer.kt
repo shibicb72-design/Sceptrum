@@ -17,7 +17,10 @@ import com.shibi.sceptrum.atv.proto.remote.RemoteAppInfo
 import com.shibi.sceptrum.atv.proto.remote.RemoteConfigure
 import com.shibi.sceptrum.atv.proto.remote.RemoteDeviceInfo
 import com.shibi.sceptrum.atv.proto.remote.RemoteDirection
+import com.shibi.sceptrum.atv.proto.remote.RemoteEditInfo
 import com.shibi.sceptrum.atv.proto.remote.RemoteImeBatchEdit
+import com.shibi.sceptrum.atv.proto.remote.RemoteImeObject
+import com.shibi.sceptrum.atv.proto.remote.RemoteImeShowRequest
 import com.shibi.sceptrum.atv.proto.remote.RemoteImeKeyInject
 import com.shibi.sceptrum.atv.proto.remote.RemoteKeyCode
 import com.shibi.sceptrum.atv.proto.remote.RemoteMessage
@@ -25,6 +28,7 @@ import com.shibi.sceptrum.atv.proto.remote.RemotePingRequest
 import com.shibi.sceptrum.atv.proto.remote.RemoteSetActive
 import com.shibi.sceptrum.atv.proto.remote.RemoteSetVolumeLevel
 import com.shibi.sceptrum.atv.proto.remote.RemoteStart
+import com.shibi.sceptrum.atv.proto.remote.RemoteTextFieldStatus
 import java.io.Closeable
 import java.io.OutputStream
 import java.net.InetAddress
@@ -157,9 +161,22 @@ class FakeAndroidTvServer(
     fun pushCurrentApp(appPackage: String) =
         broadcast(RemoteMessage(remote_ime_key_inject = RemoteImeKeyInject(app_info = RemoteAppInfo(app_package = appPackage))))
 
-    /** A text field got focus on the TV. */
-    fun pushImeField(imeCounter: Int, fieldCounter: Int) =
-        broadcast(RemoteMessage(remote_ime_batch_edit = RemoteImeBatchEdit(ime_counter = imeCounter, field_counter = fieldCounter)))
+    /** A text field got focus on the TV; [value] is the text already in it. */
+    fun pushImeField(imeCounter: Int, fieldCounter: Int, value: String? = null) = broadcast(
+        RemoteMessage(
+            remote_ime_batch_edit = RemoteImeBatchEdit(
+                ime_counter = imeCounter,
+                field_counter = fieldCounter,
+                edit_info = value?.let { listOf(RemoteEditInfo(insert = 1, text_field_status = RemoteImeObject(it.length - 1, it.length - 1, it))) }
+                    .orEmpty(),
+            ),
+        ),
+    )
+
+    /** The focused field asks for a keyboard, with its label (e.g. "Search"). */
+    fun pushImeShow(value: String, label: String) = broadcast(
+        RemoteMessage(remote_ime_show_request = RemoteImeShowRequest(RemoteTextFieldStatus(value_ = value, label = label))),
+    )
 
     /** Simulates the network dropping: every control session is cut. */
     fun dropConnections() {

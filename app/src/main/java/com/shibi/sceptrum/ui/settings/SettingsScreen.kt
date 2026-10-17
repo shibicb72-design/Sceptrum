@@ -39,8 +39,9 @@ import com.shibi.sceptrum.ui.background.LocalBackgroundChrome
 import com.shibi.sceptrum.ui.background.toComposeColor
 
 /**
- * Appearance settings: Dark theme toggle and the pastel grid. Dark on paints
- * the dark backdrop over the pick without overwriting it; off restores it.
+ * Settings: Dark theme toggle and the pastel grid (Dark on paints the dark
+ * backdrop over the pick without overwriting it; off restores it), keyboard
+ * behaviour, About and the open-source licences.
  */
 @Composable
 fun SettingsScreen(
@@ -50,6 +51,9 @@ fun SettingsScreen(
     onDarkThemeChange: (Boolean) -> Unit,
     onSelectBackground: (AppBackground) -> Unit,
     modifier: Modifier = Modifier,
+    keyPressTyping: Boolean = false,
+    onKeyPressTypingChange: (Boolean) -> Unit = {},
+    versionName: String = "",
 ) {
     if (widthClass.isMultiPane) {
         Row(modifier.fillMaxSize()) {
@@ -64,7 +68,9 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     DarkThemeCard(darkTheme, onDarkThemeChange)
-                    AboutCard()
+                    KeyboardSettingsCard(keyPressTyping, onKeyPressTypingChange)
+                    AboutCard(versionName)
+                    LicencesCard()
                 }
             }
             Column(
@@ -85,7 +91,9 @@ fun SettingsScreen(
             ) {
                 DarkThemeCard(darkTheme, onDarkThemeChange)
                 BackgroundCard(darkTheme, background, onSelectBackground, columns = 5)
-                AboutCard()
+                KeyboardSettingsCard(keyPressTyping, onKeyPressTypingChange)
+                AboutCard(versionName)
+                LicencesCard()
             }
         }
     }
@@ -225,13 +233,62 @@ private fun Swatch(
 }
 
 @Composable
-private fun AboutCard() {
+private fun KeyboardSettingsCard(keyPressTyping: Boolean, onChange: (Boolean) -> Unit) {
+    GlassCard(title = stringResource(R.string.settings_keyboard)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_key_presses),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = stringResource(R.string.settings_key_presses_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = keyPressTyping, onCheckedChange = onChange)
+        }
+    }
+}
+
+@Composable
+private fun AboutCard(versionName: String) {
     GlassCard(title = stringResource(R.string.settings_about)) {
         Text(
             text = stringResource(R.string.settings_about_body),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (versionName.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.settings_version, versionName),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+}
+
+/** Plan §9.1: credit androidtvremote2, Tink and Wire (all Apache-2.0). */
+@Composable
+private fun LicencesCard() {
+    GlassCard(title = stringResource(R.string.settings_licences)) {
+        listOf(
+            R.string.licence_androidtvremote2,
+            R.string.licence_pairing_protocol,
+            R.string.licence_tink,
+            R.string.licence_wire,
+            R.string.licence_androidx,
+            R.string.licence_full_text,
+        ).forEach { line ->
+            Text(
+                text = stringResource(line),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        }
     }
 }
 

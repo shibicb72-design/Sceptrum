@@ -25,6 +25,17 @@ message PairedDevice {
   // Feature mask negotiated on the last session.
   int32 features = 11;
   bool has_tuner = 12;
+  // Apps grid in the user's order. Only read when app_shortcuts_edited is set;
+  // until then the grid shows the built-in defaults.
+  repeated AppShortcut app_shortcuts = 13;
+  bool app_shortcuts_edited = 14;
+}
+
+// One tile in the apps grid, launched with remote_app_link_launch_request.
+message AppShortcut {
+  string label = 1;
+  // A URL with a scheme (https://www.youtube.com, plex://) or market://launch?id=<package>.
+  string link = 2;
 }
 
 // The phone's TLS client identity, one for every TV: a software RSA-2048 key

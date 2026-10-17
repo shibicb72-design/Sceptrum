@@ -239,6 +239,39 @@ class AtvRemoteClientTest {
     }
 
     @Test
+    fun focusedFieldReportsItsTextAndLabelAndFollowsWhatWasSent() {
+        val tv = server()
+        val remote = client(tv)
+        remote.await { it.link == LinkState.Connected }
+        tv.pushImeField(imeCounter = 2, fieldCounter = 5, value = "ca")
+        remote.await { it.imeField == ImeField(2, 5, "ca") }
+        tv.pushImeShow(value = "ca", label = "Search YouTube")
+        remote.await { it.imeField?.label == "Search YouTube" }
+        assertEquals(ImeField(2, 5, "ca", "Search YouTube"), remote.state.value.imeField)
+
+        assertTrue(remote.sendText("cat videos"))
+        assertEquals("cat videos", remote.state.value.imeField?.value)
+        eventually { tv.imeEdits.isNotEmpty() }
+        assertEquals(2, tv.imeEdits.single().ime_counter)
+        assertEquals(5, tv.imeEdits.single().field_counter)
+    }
+
+    @Test
+    fun textBeforeAnyFieldUsesZeroCountersAndNothingGoesOutWhenDisconnected() {
+        val tv = server()
+        val remote = client(tv)
+        remote.await { it.link == LinkState.Connected }
+        assertTrue(remote.sendText("a"))
+        eventually { tv.imeEdits.isNotEmpty() }
+        assertEquals(0, tv.imeEdits.single().ime_counter)
+        assertEquals(0, tv.imeEdits.single().field_counter)
+
+        remote.stop()
+        assertFalse(remote.sendText("ab"))
+        assertFalse(remote.launchApp("https://www.netflix.com/title"))
+    }
+
+    @Test
     fun unpairedPhoneIsToldToPairAgain() {
         val tv = server()
         val remote = client(tv, identity = AtvFixtures.stranger)

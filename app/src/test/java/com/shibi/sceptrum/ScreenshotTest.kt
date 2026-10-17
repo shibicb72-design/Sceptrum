@@ -19,7 +19,15 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.shibi.sceptrum.atv.VolumeInfo
+import com.shibi.sceptrum.devices.DeviceEdit
 import com.shibi.sceptrum.devices.DevicesUiState
+import com.shibi.sceptrum.domain.AppShortcutError
+import com.shibi.sceptrum.domain.StandbyTips
+import com.shibi.sceptrum.power.PowerUiState
+import com.shibi.sceptrum.remote.AddAppForm
+import com.shibi.sceptrum.remote.AppsUiState
+import com.shibi.sceptrum.remote.KeyboardUiState
+import com.shibi.sceptrum.store.AppShortcut
 import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.domain.AppBackground
 import com.shibi.sceptrum.domain.DiscoveredRow
@@ -33,6 +41,8 @@ import com.shibi.sceptrum.ui.SceptrumFrame
 import com.shibi.sceptrum.ui.SceptrumScaffold
 import com.shibi.sceptrum.ui.devices.DevicesScreen
 import com.shibi.sceptrum.ui.nav.NavSection
+import com.shibi.sceptrum.ui.remote.RemoteExtras
+import com.shibi.sceptrum.ui.remote.RemotePanel
 import com.shibi.sceptrum.ui.remote.RemoteScreen
 import com.shibi.sceptrum.ui.settings.SettingsScreen
 import org.junit.Before
@@ -54,6 +64,27 @@ private val Connected = SessionState(
     isOn = true,
 )
 private val CodeEntry = PairingUiState.EnterCode(Target, code = "4FA")
+private val Offline = Connected.copy(status = ConnectionStatus.Offline, volume = null, isOn = null)
+private val KeyboardOpen = RemoteExtras(
+    keyboard = KeyboardUiState(
+        text = "lo-fi beats",
+        fieldActive = true,
+        fieldLabel = "Search",
+        app = "com.google.android.youtube.tv",
+        connected = true,
+    ),
+    panel = RemotePanel.Keyboard,
+)
+private val AppsShown = AppsUiState(
+    canEdit = true,
+    currentApp = AppShortcut("Kodi", "market://launch?id=org.xbmc.kodi"),
+)
+private val AppsOpen = RemoteExtras(apps = AppsShown, panel = RemotePanel.Apps)
+private val AppsEditing = AppsShown.copy(editing = true)
+private val PowerTip = RemoteExtras(
+    power = PowerUiState.Failed("XGIMI Horizon S Max", StandbyTips.forDevice("XGIMI Horizon S Max", null, hasMac = true)),
+)
+private val Editing = DeviceEdit("mac:01", "XGIMI Horizon S Max", "192.168.1.50", "AA:BB:CC:DD:EE:01", draft = "Living room projector")
 private val SampleDevices = DevicesUiState(
     saved = listOf(
         SavedRow("mac:01", "XGIMI Horizon S Max", "192.168.1.50", active = true, online = true),
@@ -224,6 +255,84 @@ class ScreenshotTest {
         pairing = PairingUiState.Paired(Target, "mac:AA:BB:CC:DD:EE:01"),
     )
 
+    @Test fun keyboardFoldedPastel() = shot("keyboard_folded_pastel", NavSection.Remote, dark = false, session = Connected, extras = KeyboardOpen)
+
+    @Test fun keyboardFoldedDark() = shot("keyboard_folded_dark", NavSection.Remote, dark = true, session = Connected, extras = KeyboardOpen)
+
+    @Test fun keyboardNoFieldFoldedPastel() = shot(
+        "keyboard_no_field_folded_pastel",
+        NavSection.Remote,
+        dark = false,
+        session = Connected,
+        extras = RemoteExtras(keyboard = KeyboardUiState(connected = true, keyPresses = true), panel = RemotePanel.Keyboard),
+    )
+
+    @Config(qualifiers = Unfolded)
+    @Test fun keyboardUnfoldedDark() = shot("keyboard_unfolded_dark", NavSection.Remote, dark = true, session = Connected, extras = KeyboardOpen)
+
+    @Test fun appsFoldedPastel() = shot("apps_folded_pastel", NavSection.Remote, dark = false, session = Connected, extras = AppsOpen)
+
+    @Test fun appsFoldedDark() = shot("apps_folded_dark", NavSection.Remote, dark = true, session = Connected, extras = AppsOpen)
+
+    @Test fun appsEditingFoldedPastel() = shot(
+        "apps_editing_folded_pastel",
+        NavSection.Remote,
+        dark = false,
+        session = Connected,
+        extras = RemoteExtras(
+            apps = AppsEditing.copy(form = AddAppForm(link = "spotify", error = AppShortcutError.Invalid)),
+            panel = RemotePanel.Apps,
+        ),
+    )
+
+    @Config(qualifiers = Unfolded)
+    @Test fun appsEditingUnfoldedDark() =
+        shot("apps_editing_unfolded_dark", NavSection.Remote, dark = true, session = Connected, extras = RemoteExtras(apps = AppsEditing))
+
+    @Test fun swipePadFoldedPastel() =
+        shot("swipe_pad_folded_pastel", NavSection.Remote, dark = false, session = Connected, extras = RemoteExtras(swipeMode = true))
+
+    @Test fun swipePadFoldedDark() =
+        shot("swipe_pad_folded_dark", NavSection.Remote, dark = true, session = Connected, extras = RemoteExtras(swipeMode = true))
+
+    @Test fun powerWakingFoldedPastel() = shot(
+        "power_waking_folded_pastel",
+        NavSection.Remote,
+        dark = false,
+        session = Offline,
+        extras = RemoteExtras(power = PowerUiState.Waking("XGIMI Horizon S Max", sentPacket = true)),
+    )
+
+    @Test fun powerTipFoldedDark() = shot("power_tip_folded_dark", NavSection.Remote, dark = true, session = Offline, extras = PowerTip)
+
+    @Test fun powerTipFoldedPastel() = shot("power_tip_folded_pastel", NavSection.Remote, dark = false, session = Offline, extras = PowerTip)
+
+    @Config(qualifiers = Unfolded)
+    @Test fun powerTipUnfoldedPastel() =
+        shot("power_tip_unfolded_pastel", NavSection.Remote, dark = false, session = Offline, extras = PowerTip)
+
+    @Test fun lanBlockedFoldedPastel() = shot(
+        "lan_blocked_folded_pastel",
+        NavSection.Remote,
+        dark = false,
+        session = Offline,
+        extras = RemoteExtras(lanBlocked = true),
+    )
+
+    @Test fun deviceEditFoldedPastel() =
+        shot("device_edit_folded_pastel", NavSection.Devices, dark = false, devices = SampleDevices.copy(editing = Editing))
+
+    @Test fun deviceEditFoldedDark() =
+        shot("device_edit_folded_dark", NavSection.Devices, dark = true, devices = SampleDevices.copy(editing = Editing))
+
+    @Config(qualifiers = Unfolded)
+    @Test fun deviceForgetUnfoldedPastel() = shot(
+        "device_forget_unfolded_pastel",
+        NavSection.Devices,
+        dark = false,
+        devices = SampleDevices.copy(editing = Editing.copy(confirmForget = true)),
+    )
+
     /** A blend backdrop, to show the gradient under the glass keys. */
     @Test fun remoteFoldedBlend() =
         shot("remote_folded_blend", NavSection.Remote, dark = false, background = AppBackground.Gradient("mermaid"))
@@ -261,11 +370,12 @@ class ScreenshotTest {
         devices: DevicesUiState = SampleDevices,
         pairing: PairingUiState = PairingUiState.Idle,
         session: SessionState = SessionState(),
+        extras: RemoteExtras = RemoteExtras(),
     ) {
         captureRoboImage("$Dir/$name.png") {
             SceptrumFrame(darkTheme = dark, background = background) { widthClass ->
                 SceptrumScaffold(section = section, onSelect = {}) {
-                    Screen(section, widthClass, dark, background, devices, pairing, session)
+                    Screen(section, widthClass, dark, background, devices, pairing, session, extras)
                 }
             }
         }
@@ -280,9 +390,10 @@ class ScreenshotTest {
         devices: DevicesUiState,
         pairing: PairingUiState,
         session: SessionState,
+        extras: RemoteExtras,
     ) {
         when (section) {
-            NavSection.Remote -> RemoteScreen(widthClass, session = session, devices = devices)
+            NavSection.Remote -> RemoteScreen(widthClass, session = session, devices = devices, extras = extras)
             NavSection.Devices -> DevicesScreen(widthClass, state = devices, pairing = pairing)
             NavSection.Settings -> SettingsScreen(
                 widthClass = widthClass,

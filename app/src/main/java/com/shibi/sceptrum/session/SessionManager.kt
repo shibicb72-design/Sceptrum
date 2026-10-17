@@ -3,6 +3,7 @@ package com.shibi.sceptrum.session
 import com.shibi.sceptrum.atv.AtvRemoteClient
 import com.shibi.sceptrum.atv.AtvState
 import com.shibi.sceptrum.atv.ClientIdentityProvider
+import com.shibi.sceptrum.atv.ImeField
 import com.shibi.sceptrum.atv.KeyDirection
 import com.shibi.sceptrum.atv.RemoteConfig
 import com.shibi.sceptrum.atv.VolumeInfo
@@ -16,7 +17,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -29,6 +29,15 @@ data class SessionState(
     val status: ConnectionStatus = ConnectionStatus.NoDevice,
     val volume: VolumeInfo? = null,
     val isOn: Boolean? = null,
+    val deviceId: String? = null,
+    /** Wake-on-LAN MAC from the TV certificate, null when unknown. */
+    val mac: String? = null,
+    /** Vendor from the TV's last `remote_configure`, for standby tips. */
+    val vendor: String? = null,
+    /** Foreground app package the TV last reported. */
+    val currentApp: String? = null,
+    /** The focused TV text field, null until the TV reports one. */
+    val textField: ImeField? = null,
 )
 
 /** The remote's view of the active device. Faked in view-model tests. */
@@ -37,6 +46,12 @@ interface RemoteSession {
 
     /** False when not connected: nothing is queued. */
     fun send(keyCode: Int, direction: KeyDirection = KeyDirection.Short): Boolean
+
+    /** Replaces the focused TV text field; false when not connected or [text] is empty. */
+    fun sendText(text: String): Boolean
+
+    /** `remote_app_link_launch_request`; false when not connected. */
+    fun launchApp(link: String): Boolean
 
     fun retry()
 }
@@ -87,9 +102,7 @@ class SessionManager(
 
     init {
         scope.launch {
-            activeDevice
-                .distinctUntilChanged { a, b -> a?.connectionKey() == b?.connectionKey() }
-                .collect { swap(it) }
+            activeDevice.collect { onActiveDevice(it) }
         }
     }
 
@@ -121,6 +134,10 @@ class SessionManager(
     override fun send(keyCode: Int, direction: KeyDirection): Boolean =
         current.value?.client?.sendKey(keyCode, direction) ?: false
 
+    override fun sendText(text: String): Boolean = current.value?.client?.sendText(text) ?: false
+
+    override fun launchApp(link: String): Boolean = current.value?.client?.launchApp(link) ?: false
+
     override fun retry() {
         current.value?.client?.retryNow()
     }
@@ -129,7 +146,18 @@ class SessionManager(
         current.value?.client?.retryNow(dropCurrent)
     }
 
+    /** A rename or a new app grid keeps the live client; a new address, pin or device swaps it. */
     @Synchronized
+    private fun onActiveDevice(device: PairedDevice?) {
+        val live = current.value
+        if (live != null && device != null && live.device.connectionKey() == device.connectionKey()) {
+            if (live.device != device) current.value = Active(device, live.client)
+            return
+        }
+        if (live == null && device == null) return
+        swap(device)
+    }
+
     private fun swap(device: PairedDevice?) {
         current.value?.client?.stop()
         val next = device?.let { Active(it, client(it)) }
@@ -153,6 +181,11 @@ class SessionManager(
         status = ConnectionStatus.from(link),
         volume = volume,
         isOn = isOn,
+        deviceId = device.id,
+        mac = device.mac.ifEmpty { null },
+        vendor = this.device?.vendor?.ifEmpty { null },
+        currentApp = currentApp,
+        textField = imeField,
     )
 
     companion object {

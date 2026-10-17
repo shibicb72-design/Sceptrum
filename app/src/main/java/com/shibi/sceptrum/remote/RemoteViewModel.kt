@@ -6,6 +6,9 @@ import com.shibi.sceptrum.atv.KeyDirection
 import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.domain.KeyRepeat
 import com.shibi.sceptrum.domain.RemoteKey
+import com.shibi.sceptrum.power.PowerController
+import com.shibi.sceptrum.power.PowerUiState
+import com.shibi.sceptrum.power.Waker
 import com.shibi.sceptrum.session.RemoteSession
 import com.shibi.sceptrum.session.SessionState
 import kotlinx.coroutines.Job
@@ -30,8 +33,16 @@ enum class RemoteHaptic {
  * [KeyRepeat.INTERVAL_MS] until release. Long-press keys send SHORT on a quick
  * release, or START_LONG at [KeyRepeat.LONG_PRESS_MS] and END_LONG on release.
  */
-class RemoteViewModel(private val session: RemoteSession) : ViewModel() {
+class RemoteViewModel(
+    private val session: RemoteSession,
+    waker: Waker = Waker { false },
+) : ViewModel() {
     val state: StateFlow<SessionState> = session.state
+
+    private val powerFlow = PowerController(session, waker, viewModelScope)
+
+    /** Waking the TV, or the tip card when it did not come back (plan §7.3). */
+    val power: StateFlow<PowerUiState> = powerFlow.state
 
     private val _haptics = MutableSharedFlow<RemoteHaptic>(extraBufferCapacity = 8)
     val haptics: SharedFlow<RemoteHaptic> = _haptics
@@ -40,8 +51,14 @@ class RemoteViewModel(private val session: RemoteSession) : ViewModel() {
     private val longStarted = mutableSetOf<RemoteKey>()
 
     fun tap(key: RemoteKey) {
+        if (key == RemoteKey.Power) {
+            if (!powerFlow.press()) _haptics.tryEmit(RemoteHaptic.Reject)
+            return
+        }
         send(key, KeyDirection.Short)
     }
+
+    fun dismissPowerTip() = powerFlow.dismiss()
 
     fun press(key: RemoteKey) {
         release(key, sendRelease = false)

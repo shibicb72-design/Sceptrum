@@ -160,21 +160,37 @@ class RemoteViewModelTest {
         assertEquals(1, session.retries)
     }
 
-    private class FakeSession : RemoteSession {
-        override val state = MutableStateFlow(SessionState("TV", ConnectionStatus.Connected))
-        var connected = true
-        val sent = mutableListOf<Pair<Int, KeyDirection>>()
-        val attempts = mutableListOf<Pair<Int, KeyDirection>>()
-        var retries = 0
+}
 
-        override fun send(keyCode: Int, direction: KeyDirection): Boolean {
-            attempts += keyCode to direction
-            if (connected) sent += keyCode to direction
-            return connected
-        }
+/** A remote session that records what the view models send. */
+class FakeSession(
+    initial: SessionState = SessionState("TV", ConnectionStatus.Connected),
+) : RemoteSession {
+    override val state = MutableStateFlow(initial)
+    var connected = true
+    val sent = mutableListOf<Pair<Int, KeyDirection>>()
+    val attempts = mutableListOf<Pair<Int, KeyDirection>>()
+    val texts = mutableListOf<String>()
+    val links = mutableListOf<String>()
+    var retries = 0
 
-        override fun retry() {
-            retries++
-        }
+    override fun send(keyCode: Int, direction: KeyDirection): Boolean {
+        attempts += keyCode to direction
+        if (connected) sent += keyCode to direction
+        return connected
+    }
+
+    override fun sendText(text: String): Boolean {
+        if (connected && text.isNotEmpty()) texts += text
+        return connected && text.isNotEmpty()
+    }
+
+    override fun launchApp(link: String): Boolean {
+        if (connected) links += link
+        return connected
+    }
+
+    override fun retry() {
+        retries++
     }
 }

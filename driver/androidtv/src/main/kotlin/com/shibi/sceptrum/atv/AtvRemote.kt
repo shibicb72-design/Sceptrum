@@ -60,8 +60,42 @@ data class VolumeInfo(val level: Int, val max: Int, val muted: Boolean)
 
 data class TvDeviceInfo(val model: String, val vendor: String, val softwareVersion: String)
 
-/** Counters from the TV's last `remote_ime_batch_edit`; text edits echo them. */
-data class ImeField(val imeCounter: Int, val fieldCounter: Int)
+/**
+ * The focused TV text field. The counters come from the TV's last
+ * `remote_ime_batch_edit` and text edits echo them; [value] and [label] are
+ * what the TV reported for the field, when it said anything.
+ */
+data class ImeField(
+    val imeCounter: Int,
+    val fieldCounter: Int,
+    val value: String = "",
+    val label: String = "",
+)
+
+/** `remote_ime_batch_edit` and `remote_app_link_launch_request` payloads (androidtvremote2 `send_text`, `send_launch_app_command`). */
+object AtvEdits {
+    private val UriScheme = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
+
+    /**
+     * Replaces the whole field with [text], cursor after the last character,
+     * echoing [field]'s counters (0 and 0 before the TV has sent any).
+     * androidtvremote2 refuses empty text, so callers clear a field with
+     * `KEYCODE_DEL` instead.
+     */
+    fun replaceText(field: ImeField?, text: String): RemoteImeBatchEdit {
+        require(text.isNotEmpty()) { "empty text" }
+        val cursor = text.length - 1
+        return RemoteImeBatchEdit(
+            ime_counter = field?.imeCounter ?: 0,
+            field_counter = field?.fieldCounter ?: 0,
+            edit_info = listOf(RemoteEditInfo(insert = 1, text_field_status = RemoteImeObject(cursor, cursor, text))),
+        )
+    }
+
+    /** A URL with a scheme is sent as is; a bare package id becomes `market://launch?id=<package>`. */
+    fun appLink(appLinkOrPackage: String): String =
+        if (UriScheme.containsMatchIn(appLinkOrPackage)) appLinkOrPackage else "market://launch?id=$appLinkOrPackage"
+}
 
 enum class DisconnectReason { Unreachable, ConnectionLost, Idle, Timeout }
 
@@ -203,25 +237,21 @@ class AtvRemoteClient(
     }
 
     /** A URL is sent as is; a bare package id becomes `market://launch?id=<package>`. */
-    fun launchApp(appLinkOrPackage: String): Boolean {
-        val link = if (UriScheme.containsMatchIn(appLinkOrPackage)) appLinkOrPackage else "market://launch?id=$appLinkOrPackage"
-        return sendWhenReady(RemoteMessage(remote_app_link_launch_request = RemoteAppLinkLaunchRequest(link)))
-    }
+    fun launchApp(appLinkOrPackage: String): Boolean = sendWhenReady(
+        RemoteMessage(remote_app_link_launch_request = RemoteAppLinkLaunchRequest(AtvEdits.appLink(appLinkOrPackage))),
+    )
 
     /**
      * Replaces the focused TV text field with [text] (androidtvremote2 `send_text`):
-     * one batch edit echoing the TV's counters, cursor at the end.
+     * one batch edit echoing the TV's counters, cursor at the end. Empty text is
+     * refused (false).
      */
     fun sendText(text: String): Boolean {
         if (text.isEmpty()) return false
-        val field = _state.value.imeField ?: ImeField(0, 0)
-        val cursor = text.length - 1
-        val edit = RemoteImeBatchEdit(
-            ime_counter = field.imeCounter,
-            field_counter = field.fieldCounter,
-            edit_info = listOf(RemoteEditInfo(insert = 1, text_field_status = RemoteImeObject(cursor, cursor, text))),
-        )
-        return sendWhenReady(RemoteMessage(remote_ime_batch_edit = edit))
+        val field = _state.value.imeField
+        val sent = sendWhenReady(RemoteMessage(remote_ime_batch_edit = AtvEdits.replaceText(field, text)))
+        if (sent && field != null) _state.update { it.copy(imeField = it.imeField?.copy(value = text)) }
+        return sent
     }
 
     private fun sendWhenReady(message: RemoteMessage): Boolean {
@@ -446,7 +476,17 @@ class AtvRemoteClient(
                 _state.update { it.copy(currentApp = app.app_package.ifEmpty { null }) }
             }
             message.remote_ime_batch_edit?.let { edit ->
-                _state.update { it.copy(imeField = ImeField(edit.ime_counter, edit.field_counter)) }
+                val value = edit.edit_info.lastOrNull()?.text_field_status?.value_.orEmpty()
+                _state.update {
+                    it.copy(imeField = ImeField(edit.ime_counter, edit.field_counter, value, it.imeField?.label.orEmpty()))
+                }
+            }
+            // A field asked for the keyboard: keep the counters, take its text and label.
+            message.remote_ime_show_request?.remote_text_field_status?.let { status ->
+                _state.update {
+                    val field = it.imeField ?: ImeField(0, 0)
+                    it.copy(imeField = field.copy(value = status.value_, label = status.label))
+                }
             }
         }
     }
@@ -455,6 +495,5 @@ class AtvRemoteClient(
         const val DEFAULT_PORT = 6466
         private const val OUTBOX_CAPACITY = 64
         private const val NANOS_PER_MS = 1_000_000L
-        private val UriScheme = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
     }
 }

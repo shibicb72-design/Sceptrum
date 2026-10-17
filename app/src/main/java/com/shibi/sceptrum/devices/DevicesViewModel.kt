@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -23,12 +24,25 @@ data class ManualEntry(
     val notLocal: Boolean = false,
 )
 
+/** The rename / forget card for one saved device. */
+data class DeviceEdit(
+    val id: String,
+    val name: String,
+    val host: String,
+    val mac: String,
+    /** The rename field. */
+    val draft: String = name,
+    /** "Forget <name>?" is showing. */
+    val confirmForget: Boolean = false,
+)
+
 data class DevicesUiState(
     val saved: List<SavedRow> = emptyList(),
     val discovered: List<DiscoveredRow> = emptyList(),
     val scanning: Boolean = false,
     val discoveryFailed: Boolean = false,
     val manual: ManualEntry = ManualEntry(),
+    val editing: DeviceEdit? = null,
 )
 
 /** Saved and discovered TVs, scanning, device choice and "Add by IP". */
@@ -38,9 +52,10 @@ class DevicesViewModel(
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
     private val manual = MutableStateFlow(ManualEntry())
+    private val editing = MutableStateFlow<DeviceEdit?>(null)
 
     val state: StateFlow<DevicesUiState> =
-        combine(repository.store, discovery.state, manual) { store, found, entry ->
+        combine(repository.store, discovery.state, manual, editing) { store, found, entry, edit ->
             val lists = DeviceListMerge.merge(store.devices, store.active_device_id, found.devices)
             if (lists.hostChanges.isNotEmpty()) {
                 viewModelScope.launch {
@@ -53,6 +68,8 @@ class DevicesViewModel(
                 scanning = found.scanning,
                 discoveryFailed = found.failed,
                 manual = entry,
+                // A device forgotten elsewhere closes its card.
+                editing = edit?.takeIf { e -> store.devices.any { it.id == e.id } },
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DevicesUiState())
 
@@ -62,6 +79,42 @@ class DevicesViewModel(
 
     fun select(id: String) {
         viewModelScope.launch { repository.setActive(id) }
+    }
+
+    /** Opens the rename / forget card for a saved device. */
+    fun edit(id: String) {
+        viewModelScope.launch {
+            val device = repository.devices.first().firstOrNull { it.id == id } ?: return@launch
+            editing.value = DeviceEdit(id = device.id, name = device.name, host = device.host, mac = device.mac)
+        }
+    }
+
+    fun onRenameChange(text: String) {
+        editing.value = editing.value?.copy(draft = text.take(MAX_NAME_CHARS), confirmForget = false)
+    }
+
+    /** Saves a non-blank name and closes the card. */
+    fun saveRename() {
+        val edit = editing.value ?: return
+        val name = edit.draft.trim()
+        if (name.isEmpty()) return
+        editing.value = null
+        if (name != edit.name) viewModelScope.launch { repository.rename(edit.id, name) }
+    }
+
+    fun askForget() {
+        editing.value = editing.value?.copy(confirmForget = true)
+    }
+
+    /** Removes the device and its pin; the next saved one becomes active. */
+    fun confirmForget() {
+        val edit = editing.value ?: return
+        editing.value = null
+        viewModelScope.launch { repository.forget(edit.id) }
+    }
+
+    fun closeEdit() {
+        editing.value = null
     }
 
     fun onManualChange(text: String) {
@@ -88,5 +141,6 @@ class DevicesViewModel(
 
     private companion object {
         const val MAX_IPV4_CHARS = 15
+        const val MAX_NAME_CHARS = 40
     }
 }

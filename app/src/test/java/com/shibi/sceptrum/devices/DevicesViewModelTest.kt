@@ -107,6 +107,46 @@ class DevicesViewModelTest {
         assertEquals(1, discovery.scans)
     }
 
+    @Test
+    fun renameKeepsTheDeviceAndIgnoresABlankName() {
+        runBlocking { repository.savePaired(PairedDevice(id = "mac:01", name = "Projector", host = "192.168.1.50", mac = "AA:BB:CC:01:02:03")) }
+        awaitState { it.saved.isNotEmpty() }
+        vm.edit("mac:01")
+        val edit = awaitState { it.editing != null }.editing!!
+        assertEquals(DeviceEdit("mac:01", "Projector", "192.168.1.50", "AA:BB:CC:01:02:03"), edit)
+
+        vm.onRenameChange("   ")
+        vm.saveRename()
+        assertEquals("blank names are not saved", "   ", awaitState { true }.editing?.draft)
+
+        vm.onRenameChange("Living room projector")
+        vm.saveRename()
+        val renamed = awaitState { it.saved.singleOrNull()?.name == "Living room projector" }
+        assertNull(renamed.editing)
+        assertEquals("192.168.1.50", renamed.saved.single().host)
+        assertEquals("AA:BB:CC:01:02:03", renamed.saved.single().mac)
+    }
+
+    @Test
+    fun forgetAsksFirstThenRemovesAndTheNextDeviceBecomesActive() {
+        runBlocking {
+            repository.savePaired(PairedDevice(id = "a", name = "A", host = "10.0.0.1"))
+            repository.savePaired(PairedDevice(id = "b", name = "B", host = "10.0.0.2"))
+        }
+        awaitState { it.saved.size == 2 }
+        vm.edit("b")
+        awaitState { it.editing?.id == "b" }
+        vm.askForget()
+        assertTrue(awaitState { it.editing?.confirmForget == true }.editing!!.confirmForget)
+        assertEquals("nothing removed before confirming", 2, awaitState { true }.saved.size)
+
+        vm.confirmForget()
+        val after = awaitState { it.saved.size == 1 }
+        assertEquals("a", after.saved.single().id)
+        assertTrue(after.saved.single().active)
+        assertNull(after.editing)
+    }
+
     private class FakeDiscovery : TvDiscovery {
         override val state = MutableStateFlow(DiscoveryState())
         var scans = 0

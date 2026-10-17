@@ -3,6 +3,7 @@ package com.shibi.sceptrum.atv
 import com.shibi.sceptrum.atv.proto.polo.Options
 import com.shibi.sceptrum.atv.proto.polo.OuterMessage
 import com.shibi.sceptrum.atv.proto.polo.PairingRequest
+import com.shibi.sceptrum.atv.proto.remote.RemoteAppLinkLaunchRequest
 import com.shibi.sceptrum.atv.proto.remote.RemoteDirection
 import com.shibi.sceptrum.atv.proto.remote.RemoteKeyCode
 import com.shibi.sceptrum.atv.proto.remote.RemoteKeyInject
@@ -40,6 +41,46 @@ class MessagesTest {
         assertEquals(164, RemoteKeyCode.KEYCODE_VOLUME_MUTE.value)
         assertEquals(178, RemoteKeyCode.KEYCODE_TV_INPUT.value)
         assertEquals(615, AtvFeatures.REQUESTED)
+    }
+
+    @Test
+    fun imeReplaceTextBytes() {
+        val msg = RemoteMessage(remote_ime_batch_edit = AtvEdits.replaceText(ImeField(4, 9), "hi"))
+        // field 21 (LEN) -> AA 01, len 18; ime_counter=4 -> 08 04, field_counter=9 -> 10 09,
+        // edit_info (field 3, len 12): insert=1 -> 08 01, text_field_status (field 2, len 8):
+        // start=1 -> 08 01, end=1 -> 10 01, value="hi" -> 1A 02 68 69
+        val expected = bytes(
+            0xAA, 0x01, 0x12,
+            0x08, 0x04, 0x10, 0x09, 0x1A, 0x0C,
+            0x08, 0x01, 0x12, 0x08,
+            0x08, 0x01, 0x10, 0x01, 0x1A, 0x02, 0x68, 0x69,
+        )
+        assertArrayEquals(expected, msg.encode())
+    }
+
+    @Test
+    fun imeReplaceTextPutsTheCursorAfterTheLastCharacterAndDefaultsTheCounters() {
+        val edit = AtvEdits.replaceText(null, "netflix")
+        assertEquals(0, edit.ime_counter)
+        assertEquals(0, edit.field_counter)
+        val status = edit.edit_info.single().text_field_status!!
+        assertEquals(6, status.start)
+        assertEquals(6, status.end)
+        assertEquals("netflix", status.value_)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun imeReplaceTextRefusesEmptyText() {
+        AtvEdits.replaceText(ImeField(1, 1), "")
+    }
+
+    @Test
+    fun appLinkBytesAndPackagePrefix() {
+        val msg = RemoteMessage(remote_app_link_launch_request = RemoteAppLinkLaunchRequest(AtvEdits.appLink("plex://")))
+        // field 90 (LEN) -> D2 05, len 9; app_link (field 1) -> 0A 07 "plex://"
+        assertArrayEquals(bytes(0xD2, 0x05, 0x09, 0x0A, 0x07) + "plex://".encodeToByteArray(), msg.encode())
+        assertEquals("market://launch?id=com.plexapp.android", AtvEdits.appLink("com.plexapp.android"))
+        assertEquals("https://www.youtube.com", AtvEdits.appLink("https://www.youtube.com"))
     }
 
     @Test
