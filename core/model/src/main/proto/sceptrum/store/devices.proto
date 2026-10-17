@@ -38,8 +38,20 @@ message AppShortcut {
   string link = 2;
 }
 
+// The phone's TLS client identity, one for every TV: a software RSA-2048 key
+// and its self-signed certificate (androidtvremote2 does the same).
+message ClientIdentityRecord {
+  // PKCS#8 DER.
+  bytes private_key_pkcs8 = 1;
+  // X.509 DER.
+  bytes certificate_der = 2;
+  int64 created_at_ms = 3;
+}
+
 message DeviceStore {
   repeated PairedDevice devices = 1;
   // The device the remote drives; empty for none.
   string active_device_id = 2;
+  // Absent until the first pairing; TVs paired with it forget the phone if it changes.
+  ClientIdentityRecord client_identity = 3;
 }

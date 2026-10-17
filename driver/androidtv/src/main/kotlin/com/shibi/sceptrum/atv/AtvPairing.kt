@@ -1,20 +1,16 @@
 package com.shibi.sceptrum.atv
 
-import com.shibi.sceptrum.atv.proto.polo.Configuration
-import com.shibi.sceptrum.atv.proto.polo.Options
 import com.shibi.sceptrum.atv.proto.polo.OuterMessage
-import com.shibi.sceptrum.atv.proto.polo.PairingRequest
-import com.shibi.sceptrum.atv.proto.polo.Secret
 import java.io.Closeable
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.security.cert.X509Certificate
 import java.security.interfaces.RSAPublicKey
+import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okio.ByteString.Companion.toByteString
 
 /** What a TV's pairing port reveals before pairing. */
 class TvProbe(val identity: TvIdentity, val serverSha256: ByteArray)
@@ -27,8 +23,14 @@ enum class PairingFailure {
     /** The TV answered `STATUS_BAD_SECRET`. It shows a new code, so start again. */
     BadSecret,
 
-    /** `STATUS_ERROR` / `STATUS_BAD_CONFIGURATION`, or the TV closed the connection. */
+    /** The TV answered a status other than OK (`STATUS_ERROR`, `STATUS_BAD_CONFIGURATION`, ...) or the wrong message. */
     Rejected,
+
+    /** The TLS handshake failed or the TLS layer raised an alert, e.g. the TV refused the client certificate. */
+    Handshake,
+
+    /** The TV closed or reset the connection without a polo status. */
+    Dropped,
 
     /** No answer within the step timeout. */
     Timeout,
@@ -37,8 +39,13 @@ enum class PairingFailure {
     Unreachable,
 }
 
-class PairingException(val failure: PairingFailure, message: String, cause: Throwable? = null) :
-    Exception(message, cause)
+class PairingException(
+    val failure: PairingFailure,
+    message: String,
+    cause: Throwable? = null,
+    /** Set for every failure that came from talking to a TV. */
+    val diagnostics: PairingDiagnostics? = null,
+) : Exception(message, cause)
 
 data class PairingTimeouts(
     val connectMs: Int = 5_000,
@@ -55,6 +62,7 @@ data class PairingTimeouts(
 class AtvPairingSession private constructor(
     private val socket: SSLSocket,
     private val reader: FrameReader,
+    private val trace: Trace,
     private val clientKey: RSAPublicKey,
     /** The TV's certificate; its SHA-256 becomes the pin for port 6466. */
     val serverCertificate: X509Certificate,
@@ -64,10 +72,14 @@ class AtvPairingSession private constructor(
     val serverIdentity: TvIdentity get() = CertificateNames.parse(serverCertificate)
     val serverSha256: ByteArray get() = AtvTls.sha256(serverCertificate)
 
+    /** Negotiated TLS version, e.g. "TLSv1.3". */
+    val tlsProtocol: String? get() = trace.protocol
+
     /**
      * Checks [code] locally, then sends the secret.
      * @throws PairingException [PairingFailure.WrongCode] (session still usable),
-     *   or [PairingFailure.BadSecret], [PairingFailure.Rejected], [PairingFailure.Timeout].
+     *   or [PairingFailure.BadSecret], [PairingFailure.Rejected], [PairingFailure.Dropped],
+     *   [PairingFailure.Handshake], [PairingFailure.Timeout].
      */
     suspend fun submitCode(code: String) {
         val normalized = PairingCode.normalize(code)
@@ -77,8 +89,8 @@ class AtvPairingSession private constructor(
             throw PairingException(PairingFailure.WrongCode, "code does not match this TV")
         }
         withContext(Dispatchers.IO) {
-            guard(socket) {
-                exchange(socket, reader, outer(secret = Secret(secret.toByteString()))) { it.secret_ack != null }
+            guard(socket, trace) {
+                exchange(socket, reader, trace, PoloMessages.secret(secret), PairingStep.SecretAck)
             }
         }
         close()
@@ -86,6 +98,42 @@ class AtvPairingSession private constructor(
 
     override fun close() {
         runCatching { socket.close() }
+    }
+
+    /** Where the attempt is, for [PairingDiagnostics]. */
+    internal class Trace(val host: String, val port: Int, val identity: ClientIdentity?) {
+        @Volatile var step: PairingStep = PairingStep.Connect
+
+        @Volatile var protocol: String? = null
+
+        @Volatile var cipher: String? = null
+
+        fun negotiated(socket: SSLSocket) {
+            val session = socket.session
+            protocol = session.protocol?.takeUnless { it == "NONE" }
+            cipher = session.cipherSuite?.takeUnless { it.contains("NULL_WITH_NULL") }
+        }
+
+        fun fail(failure: PairingFailure, detail: String, cause: Throwable? = null, status: Int? = null) =
+            PairingException(
+                failure,
+                detail,
+                cause,
+                PairingDiagnostics(
+                    failure = failure,
+                    step = step,
+                    host = host,
+                    port = port,
+                    statusCode = status,
+                    detail = detail,
+                    errors = PairingDiagnostics.chain(cause),
+                    keyAlgorithm = identity?.privateKey?.algorithm,
+                    keyBits = PairingDiagnostics.keyBits(identity),
+                    keySource = identity?.source,
+                    tlsProtocol = protocol,
+                    cipherSuite = cipher,
+                ),
+            )
     }
 
     companion object {
@@ -104,44 +152,35 @@ class AtvPairingSession private constructor(
             clientName: String,
             port: Int = DEFAULT_PORT,
             timeouts: PairingTimeouts = PairingTimeouts(),
+        ): AtvPairingSession = startWith(host, identity, clientName, port, timeouts) { AtvTls.sslContext(identity, it) }
+
+        /** [start] with the TLS context supplied, so tests can drop the client certificate or pin a TLS version. */
+        internal suspend fun startWith(
+            host: String,
+            identity: ClientIdentity?,
+            clientName: String,
+            port: Int,
+            timeouts: PairingTimeouts,
+            context: (CapturingTrustManager) -> SSLContext,
         ): AtvPairingSession = withContext(Dispatchers.IO) {
+            val trace = Trace(host, port, identity)
             val trust = CapturingTrustManager()
-            val socket = try {
-                AtvTls.connect(host, port, AtvTls.sslContext(identity, trust), timeouts.connectMs, timeouts.stepMs)
-            } catch (e: UnreachableException) {
-                throw PairingException(PairingFailure.Unreachable, "Cannot reach $host:$port", e)
-            } catch (e: SocketTimeoutException) {
-                throw PairingException(PairingFailure.Timeout, "TLS handshake timed out", e)
-            } catch (e: IOException) {
-                throw PairingException(PairingFailure.Rejected, "TLS handshake failed", e)
-            }
-            guard(socket) {
+            val socket = connect(trace, context(trust), timeouts)
+            guard(socket, trace) {
                 val reader = FrameReader(socket.inputStream)
-                val ack = exchange(
-                    socket,
-                    reader,
-                    outer(pairingRequest = PairingRequest(service_name = SERVICE_NAME, client_name = clientName)),
-                ) { it.pairing_request_ack != null }
-                val hex = Options.Encoding(Options.Encoding.EncodingType.ENCODING_TYPE_HEXADECIMAL, CODE_SYMBOLS)
-                exchange(
-                    socket,
-                    reader,
-                    outer(options = Options(input_encodings = listOf(hex), preferred_role = Options.RoleType.ROLE_TYPE_INPUT)),
-                ) { it.options != null }
-                exchange(
-                    socket,
-                    reader,
-                    outer(configuration = Configuration(hex, Options.RoleType.ROLE_TYPE_INPUT)),
-                ) { it.configuration_ack != null }
+                val ack = exchange(socket, reader, trace, PoloMessages.pairingRequest(clientName), PairingStep.PairingRequestAck)
+                exchange(socket, reader, trace, PoloMessages.options(), PairingStep.Options)
+                exchange(socket, reader, trace, PoloMessages.configuration(), PairingStep.ConfigurationAck)
                 val serverCert = trust.serverCertificate
-                    ?: throw PairingException(PairingFailure.Rejected, "TV sent no certificate")
+                    ?: throw trace.fail(PairingFailure.Handshake, "TV sent no certificate")
                 // The same reader carries on: it may already hold buffered bytes.
                 AtvPairingSession(
                     socket = socket,
                     reader = reader,
-                    clientKey = identity.publicKey,
+                    trace = trace,
+                    clientKey = requireNotNull(identity) { "pairing needs a client identity" }.publicKey,
                     serverCertificate = serverCert,
-                    serverName = ack.pairing_request_ack?.server_name,
+                    serverName = ack.serverName,
                 )
             }
         }
@@ -151,7 +190,7 @@ class AtvPairingSession private constructor(
          * its name and MAC (androidtvremote2 `async_get_name_and_mac`). The TV
          * shows nothing.
          * @throws PairingException [PairingFailure.Unreachable], [PairingFailure.Timeout]
-         *   or [PairingFailure.Rejected].
+         *   or [PairingFailure.Handshake].
          */
         suspend fun probe(
             host: String,
@@ -159,75 +198,81 @@ class AtvPairingSession private constructor(
             port: Int = DEFAULT_PORT,
             timeouts: PairingTimeouts = PairingTimeouts(connectMs = 2_000, stepMs = 5_000),
         ): TvProbe = withContext(Dispatchers.IO) {
+            val trace = Trace(host, port, identity)
             val trust = CapturingTrustManager()
-            val socket = try {
-                AtvTls.connect(host, port, AtvTls.sslContext(identity, trust), timeouts.connectMs, timeouts.stepMs)
-            } catch (e: UnreachableException) {
-                throw PairingException(PairingFailure.Unreachable, "Cannot reach $host:$port", e)
-            } catch (e: SocketTimeoutException) {
-                throw PairingException(PairingFailure.Timeout, "TLS handshake timed out", e)
-            } catch (e: IOException) {
-                throw PairingException(PairingFailure.Rejected, "TLS handshake failed", e)
-            }
-            socket.use {
-                val cert = trust.serverCertificate ?: throw PairingException(PairingFailure.Rejected, "TV sent no certificate")
+            connect(trace, AtvTls.sslContext(identity, trust), timeouts).use {
+                val cert = trust.serverCertificate ?: throw trace.fail(PairingFailure.Handshake, "TV sent no certificate")
                 TvProbe(CertificateNames.parse(cert), AtvTls.sha256(cert))
             }
         }
 
-        /** Protocol version 2 and STATUS_OK, as androidtvremote2 `_create_message`. */
-        internal fun outer(
-            pairingRequest: PairingRequest? = null,
-            options: Options? = null,
-            configuration: Configuration? = null,
-            secret: Secret? = null,
-        ) = OuterMessage(
-            protocol_version = 2,
-            status = OuterMessage.Status.STATUS_OK,
-            pairing_request = pairingRequest,
-            options = options,
-            configuration = configuration,
-            secret = secret,
-        )
+        private fun connect(trace: Trace, context: SSLContext, timeouts: PairingTimeouts): SSLSocket = try {
+            AtvTls.connect(
+                host = trace.host,
+                port = trace.port,
+                context = context,
+                connectTimeoutMs = timeouts.connectMs,
+                readTimeoutMs = timeouts.stepMs,
+                onConnected = { trace.step = PairingStep.TlsHandshake },
+            ).also { trace.negotiated(it) }
+        } catch (e: UnreachableException) {
+            throw trace.fail(PairingFailure.Unreachable, "cannot reach ${trace.host}:${trace.port}", e.cause ?: e)
+        } catch (e: SocketTimeoutException) {
+            throw trace.fail(PairingFailure.Timeout, "TLS handshake timed out", e)
+        } catch (e: SSLException) {
+            throw trace.fail(PairingFailure.Handshake, "TLS handshake failed", e)
+        } catch (e: IOException) {
+            throw trace.fail(PairingFailure.Dropped, "connection closed during the TLS handshake", e)
+        } catch (e: RuntimeException) {
+            // A provider that cannot use the client key may throw instead of failing the handshake.
+            throw trace.fail(PairingFailure.Handshake, "TLS stack error", e)
+        }
 
+        /** Sends [request], then reads the TV's reply, which must carry the message [step] waits for. */
         private fun exchange(
             socket: SSLSocket,
             reader: FrameReader,
+            trace: Trace,
             request: OuterMessage,
-            expected: (OuterMessage) -> Boolean,
-        ): OuterMessage {
+            step: PairingStep,
+        ): PoloReply {
+            trace.step = step
             Framing.write(socket.outputStream, request.encode())
-            val raw = reader.read() ?: throw PairingException(PairingFailure.Rejected, "TV closed the connection")
+            val raw = reader.read() ?: throw trace.fail(PairingFailure.Dropped, "TV closed the connection")
             val reply = try {
-                OuterMessage.ADAPTER.decode(raw)
+                PoloReply.parse(raw)
             } catch (e: IOException) {
-                throw PairingException(PairingFailure.Rejected, "unreadable reply", e)
+                throw trace.fail(PairingFailure.Rejected, "unreadable reply", e)
             }
-            when (reply.status) {
-                OuterMessage.Status.STATUS_OK -> Unit
-                OuterMessage.Status.STATUS_BAD_SECRET ->
-                    throw PairingException(PairingFailure.BadSecret, "TV rejected the code")
-                else -> throw PairingException(PairingFailure.Rejected, "TV answered ${reply.status}")
+            val status = reply.status
+            when (status) {
+                // androidtvremote2 treats only STATUS_OK as success; a reply without a status still has to carry the ack.
+                PoloMessages.STATUS_OK, null -> Unit
+                PoloMessages.STATUS_BAD_SECRET ->
+                    throw trace.fail(PairingFailure.BadSecret, "TV answered $status", status = status)
+                else -> throw trace.fail(PairingFailure.Rejected, "TV answered $status", status = status)
             }
-            if (!expected(reply)) throw PairingException(PairingFailure.Rejected, "unexpected reply $reply")
+            if (!reply.has(step)) {
+                throw trace.fail(PairingFailure.Rejected, "unexpected reply with fields ${reply.fields.sorted()}", status = status)
+            }
             return reply
         }
 
         /** Maps socket errors to [PairingFailure] and closes the socket on any failure. */
-        private inline fun <T> guard(socket: SSLSocket, block: () -> T): T = try {
+        private inline fun <T> guard(socket: SSLSocket, trace: Trace, block: () -> T): T = try {
             block()
         } catch (e: PairingException) {
             socket.close()
             throw e
         } catch (e: SocketTimeoutException) {
             socket.close()
-            throw PairingException(PairingFailure.Timeout, "no answer from the TV", e)
+            throw trace.fail(PairingFailure.Timeout, "no answer from the TV", e)
         } catch (e: SSLException) {
             socket.close()
-            throw PairingException(PairingFailure.Rejected, "TLS error", e)
+            throw trace.fail(PairingFailure.Handshake, "TLS error", e)
         } catch (e: IOException) {
             socket.close()
-            throw PairingException(PairingFailure.Rejected, "connection lost", e)
+            throw trace.fail(PairingFailure.Dropped, "connection lost", e)
         }
     }
 }

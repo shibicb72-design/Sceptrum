@@ -16,8 +16,14 @@ enum class PairingError {
     /** The TV said the secret was wrong; it now shows a new code. */
     BadSecret,
 
-    /** The TV refused or closed the pairing. */
+    /** The TV answered with an error status. */
     Rejected,
+
+    /** The secure connection failed, e.g. the TV refused the phone's certificate. */
+    Handshake,
+
+    /** The TV hung up without saying why. */
+    Dropped,
 
     /** No answer from the TV in time. */
     Timeout,
@@ -39,7 +45,8 @@ sealed interface PairingUiState {
         val error: PairingError? = null,
     ) : PairingUiState
 
-    data class Failed(val target: PairingTarget, val error: PairingError) : PairingUiState
+    /** [report] is the text "Copy details" puts on the clipboard. */
+    data class Failed(val target: PairingTarget, val error: PairingError, val report: String = "") : PairingUiState
 
     data class Paired(val target: PairingTarget, val deviceId: String) : PairingUiState
 }

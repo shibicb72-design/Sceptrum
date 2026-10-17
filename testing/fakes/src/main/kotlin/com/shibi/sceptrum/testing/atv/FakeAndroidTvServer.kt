@@ -5,6 +5,8 @@ import com.shibi.sceptrum.atv.ClientIdentity
 import com.shibi.sceptrum.atv.FrameReader
 import com.shibi.sceptrum.atv.Framing
 import com.shibi.sceptrum.atv.PairingSecret
+import com.shibi.sceptrum.atv.PairingStep
+import com.shibi.sceptrum.atv.proto.polo.Configuration
 import com.shibi.sceptrum.atv.proto.polo.ConfigurationAck
 import com.shibi.sceptrum.atv.proto.polo.Options
 import com.shibi.sceptrum.atv.proto.polo.OuterMessage
@@ -102,7 +104,15 @@ class FakeAndroidTvServer(
     @Volatile var shownCode: String? = null
         private set
 
+    /** Answer only this raw polo status (any number, even outside the enum) at [failAt]. */
+    @Volatile var failAt: PairingStep? = null
+    @Volatile var failStatus: Int = 400
+
+    /** Client certificates presented in pairing-port handshakes. */
+    val clientCertificates = CopyOnWriteArrayList<X509Certificate>()
     val pairingRequests = CopyOnWriteArrayList<PairingRequest>()
+    val optionsReceived = CopyOnWriteArrayList<Options>()
+    val configurationsReceived = CopyOnWriteArrayList<Configuration>()
     val secretsReceived = AtomicInteger()
     val configureReplies = CopyOnWriteArrayList<RemoteConfigure>()
     val setActiveReplies = CopyOnWriteArrayList<RemoteSetActive>()
@@ -187,6 +197,17 @@ class FakeAndroidTvServer(
         val out = socket.outputStream
         fun next(): OuterMessage = OuterMessage.ADAPTER.decode(reader.read() ?: error("client closed"))
 
+        clientCertificates += client
+        /** Sends [message], or only the status [failStatus] when the test chose to fail at [step]. */
+        fun answer(step: PairingStep, message: OuterMessage): Boolean {
+            if (failAt == step) {
+                write(out, byteArrayOf(0x08, 0x02, 0x10) + Framing.encodeVarint(failStatus))
+                return false
+            }
+            write(out, ok(message))
+            return true
+        }
+
         pairingRequests += next().pairing_request ?: error("expected pairing request")
         when (pairingScript) {
             PairingScript.RejectRequest -> {
@@ -200,17 +221,21 @@ class FakeAndroidTvServer(
             PairingScript.DropAfterRequest -> return
             PairingScript.Normal, PairingScript.BadSecret -> Unit
         }
-        write(out, ok(OuterMessage(protocol_version = 2, status = OuterMessage.Status.STATUS_OK, pairing_request_ack = PairingRequestAck(server_name = model))))
-        next().options ?: error("expected options")
+        if (!answer(PairingStep.PairingRequestAck, OuterMessage(protocol_version = 2, status = OuterMessage.Status.STATUS_OK, pairing_request_ack = PairingRequestAck(server_name = model)))) return
+        optionsReceived += next().options ?: error("expected options")
         val hex = Options.Encoding(Options.Encoding.EncodingType.ENCODING_TYPE_HEXADECIMAL, 6)
-        write(out, ok(OuterMessage(protocol_version = 2, status = OuterMessage.Status.STATUS_OK, options = Options(input_encodings = listOf(hex), preferred_role = Options.RoleType.ROLE_TYPE_INPUT))))
-        next().configuration ?: error("expected configuration")
+        if (!answer(PairingStep.Options, OuterMessage(protocol_version = 2, status = OuterMessage.Status.STATUS_OK, options = Options(input_encodings = listOf(hex), preferred_role = Options.RoleType.ROLE_TYPE_INPUT)))) return
+        configurationsReceived += next().configuration ?: error("expected configuration")
         val expected = PairingSecret.compute(client.publicKey as RSAPublicKey, identity.publicKey, "00$codeSuffix")
         shownCode = "%02X".format(expected[0].toInt() and 0xFF) + codeSuffix
-        write(out, ok(OuterMessage(protocol_version = 2, status = OuterMessage.Status.STATUS_OK, configuration_ack = ConfigurationAck())))
+        if (!answer(PairingStep.ConfigurationAck, OuterMessage(protocol_version = 2, status = OuterMessage.Status.STATUS_OK, configuration_ack = ConfigurationAck()))) return
 
         val secret = next().secret ?: error("expected secret")
         secretsReceived.incrementAndGet()
+        if (failAt == PairingStep.SecretAck) {
+            answer(PairingStep.SecretAck, OuterMessage(protocol_version = 2, status = OuterMessage.Status.STATUS_OK))
+            return
+        }
         if (pairingScript == PairingScript.Normal && secret.secret == ByteString.of(*expected)) {
             trust(client)
             write(out, ok(OuterMessage(protocol_version = 2, status = OuterMessage.Status.STATUS_OK, secret_ack = SecretAck(secret.secret))))

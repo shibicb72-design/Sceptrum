@@ -2,8 +2,12 @@ package com.shibi.sceptrum.pairing
 
 import com.shibi.sceptrum.atv.AtvPairingSession
 import com.shibi.sceptrum.atv.ClientIdentityProvider
+import com.shibi.sceptrum.atv.PairingDiagnostics
+import com.shibi.sceptrum.atv.PairingException
+import com.shibi.sceptrum.atv.PairingFailure
 import com.shibi.sceptrum.atv.PairingTimeouts
 import com.shibi.sceptrum.domain.PairingTarget
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -32,8 +36,27 @@ class AtvPairingGateway(
     private val timeouts: PairingTimeouts = PairingTimeouts(),
 ) : PairingGateway {
     override suspend fun start(target: PairingTarget): PairingAttempt {
-        // First use generates the Keystore key, which takes a moment.
-        val client = withContext(Dispatchers.IO) { identity.identity() }
+        // First use generates the RSA key, which takes a moment.
+        val client = try {
+            withContext(Dispatchers.IO) { identity.identity() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val detail = "client identity unavailable"
+            throw PairingException(
+                PairingFailure.Handshake,
+                detail,
+                e,
+                PairingDiagnostics(
+                    failure = PairingFailure.Handshake,
+                    step = null,
+                    host = target.host,
+                    port = target.pairingPort,
+                    detail = detail,
+                    errors = PairingDiagnostics.chain(e),
+                ),
+            )
+        }
         val session = AtvPairingSession.start(target.host, client, clientName, target.pairingPort, timeouts)
         val tv = session.serverIdentity
         return object : PairingAttempt {

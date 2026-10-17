@@ -14,5 +14,9 @@ Apache License, Version 2.0:
     pairing secret, pairing and control-session message flow, feature mask,
     reconnect backoff, certificate name/MAC parsing) is a Kotlin port of its
     base.py, pairing.py, remote.py and androidtv_remote.py.
+  - The client certificate profile in SoftwareClientIdentity.kt (RSA-2048,
+    e = 65537, SHA256withRSA, CN and DNS SAN, BasicConstraints CA:TRUE
+    pathlen 0, 10 years) follows its certificate_generator.py; the DER
+    writer itself is original.
   - tools/atv_fixtures.py reproduces its pairing-secret expressions to make
     the golden test vectors.

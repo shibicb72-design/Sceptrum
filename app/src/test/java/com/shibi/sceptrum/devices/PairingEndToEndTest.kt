@@ -2,7 +2,9 @@ package com.shibi.sceptrum.devices
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.shibi.sceptrum.atv.AtvTls
+import com.shibi.sceptrum.atv.PairingStep
 import com.shibi.sceptrum.atv.PairingTimeouts
+import com.shibi.sceptrum.data.StoredClientIdentityProvider
 import com.shibi.sceptrum.domain.PairingError
 import com.shibi.sceptrum.domain.PairingTarget
 import com.shibi.sceptrum.domain.PairingUiState
@@ -20,6 +22,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import okio.ByteString.Companion.toByteString
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -71,6 +74,37 @@ class PairingEndToEndTest {
         assertEquals("mac:AA:BB:CC:DD:EE:01", saved.id)
         assertEquals("AA:BB:CC:DD:EE:01", saved.mac)
         assertEquals(AtvTls.sha256(AtvFixtures.tv.certificate).toByteString(), saved.server_cert_sha256)
+    }
+
+    @Test
+    fun storedSoftwareIdentityIsCreatedOncePresentedAndReused() {
+        val provider = StoredClientIdentityProvider(repository)
+        val pairing = PairingViewModel(AtvPairingGateway(provider, "Sceptrum (Test)", PairingTimeouts(2_000, 2_000)), repository)
+        pairing.begin(PairingTarget(name = "TV", host = tv.host, pairingPort = tv.pairingPort))
+        runBlocking { withTimeout(20_000) { pairing.state.first { it is PairingUiState.EnterCode } } }
+        pairing.onCodeChange(requireNotNull(tv.shownCode))
+        runBlocking { withTimeout(10_000) { pairing.state.first { it is PairingUiState.Paired } } }
+
+        val mine = provider.identity()
+        assertEquals("software", mine.source)
+        assertArrayEquals(mine.certificate.encoded, tv.clientCertificates.single().encoded)
+        assertTrue(tv.isPaired(mine.certificate))
+        val stored = runBlocking { repository.store.first() }.client_identity
+        assertArrayEquals(mine.certificate.encoded, stored?.certificate_der?.toByteArray())
+        assertEquals("one record, next start reads it", mine.certificate, StoredClientIdentityProvider(repository) { error("must not regenerate") }.identity().certificate)
+        pairing.cancel()
+    }
+
+    @Test
+    fun tvErrorStatusShowsTheRejectedCardWithTheCode() {
+        tv.failAt = PairingStep.Options
+        tv.failStatus = 401
+        vm.begin(PairingTarget(name = "TV", host = tv.host, pairingPort = tv.pairingPort))
+        val failed = awaitState { it is PairingUiState.Failed } as PairingUiState.Failed
+        assertEquals(PairingError.Rejected, failed.error)
+        assertTrue(failed.report, failed.report.contains("polo status: 401 STATUS_BAD_CONFIGURATION"))
+        assertTrue(failed.report, failed.report.contains("step: Options (waiting for Options)"))
+        assertTrue(failed.report, failed.report.contains("client key: RSA / 2048 bit / fixture"))
     }
 
     @Test

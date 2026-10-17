@@ -22,7 +22,7 @@ object AtvFixtures {
     val tvReset: ClientIdentity by lazy { identity("tv_reset") }
 
     fun identity(name: String): ClientIdentity =
-        StaticClientIdentity(certificate(name), privateKey(name))
+        StaticClientIdentity(certificate(name), privateKey(name), source = "fixture")
 
     fun certificate(name: String): X509Certificate =
         CertificateFactory.getInstance("X.509")

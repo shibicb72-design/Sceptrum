@@ -3,6 +3,7 @@ package com.shibi.sceptrum.pairing
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.shibi.sceptrum.atv.PairingCode
+import com.shibi.sceptrum.atv.PairingDiagnostics
 import com.shibi.sceptrum.atv.PairingException
 import com.shibi.sceptrum.atv.PairingFailure
 import com.shibi.sceptrum.data.DeviceRepository
@@ -27,6 +28,8 @@ class PairingViewModel(
     private val gateway: PairingGateway,
     private val repository: DeviceRepository,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Goes into the "Copy details" report. */
+    private val appVersion: String = "dev",
 ) : ViewModel() {
     private val _state = MutableStateFlow<PairingUiState>(PairingUiState.Idle)
     val state: StateFlow<PairingUiState> = _state.asStateFlow()
@@ -83,7 +86,7 @@ class PairingViewModel(
                         closeAttempt()
                         connect(current.target, carriedError = PairingError.BadSecret)
                     }
-                    else -> fail(current.target, e.failure)
+                    else -> fail(current.target, e)
                 }
             }
         }
@@ -118,14 +121,22 @@ class PairingViewModel(
                 val named = if (target.name == target.host) target.copy(name = started.tvName ?: target.name) else target
                 _state.value = PairingUiState.EnterCode(named, error = carriedError)
             } catch (e: PairingException) {
-                fail(target, e.failure)
+                fail(target, e)
             }
         }
     }
 
-    private fun fail(target: PairingTarget, failure: PairingFailure) {
+    private fun fail(target: PairingTarget, e: PairingException) {
         closeAttempt()
-        _state.value = PairingUiState.Failed(target, failure.toUiError())
+        val diagnostics = e.diagnostics ?: PairingDiagnostics(
+            failure = e.failure,
+            step = null,
+            host = target.host,
+            port = target.pairingPort,
+            detail = e.message,
+            errors = PairingDiagnostics.chain(e.cause),
+        )
+        _state.value = PairingUiState.Failed(target, e.failure.toUiError(), diagnostics.report(appVersion))
     }
 
     private fun reset() {
@@ -146,6 +157,8 @@ class PairingViewModel(
             PairingFailure.WrongCode -> PairingError.WrongCode
             PairingFailure.BadSecret -> PairingError.BadSecret
             PairingFailure.Rejected -> PairingError.Rejected
+            PairingFailure.Handshake -> PairingError.Handshake
+            PairingFailure.Dropped -> PairingError.Dropped
             PairingFailure.Timeout -> PairingError.Timeout
             PairingFailure.Unreachable -> PairingError.Unreachable
         }
