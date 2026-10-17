@@ -1,6 +1,7 @@
 package com.shibi.sceptrum.ui.devices
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,127 +10,287 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.shibi.sceptrum.R
+import com.shibi.sceptrum.devices.DevicesUiState
+import com.shibi.sceptrum.domain.DiscoveredRow
+import com.shibi.sceptrum.domain.PairingUiState
+import com.shibi.sceptrum.domain.SavedRow
 import com.shibi.sceptrum.domain.WindowWidthClass
+import com.shibi.sceptrum.ui.BusyIndicator
 import com.shibi.sceptrum.ui.GlassCard
+import com.shibi.sceptrum.ui.PillButton
 import com.shibi.sceptrum.ui.SectionHeader
 import com.shibi.sceptrum.ui.background.ContrastSurface
 import com.shibi.sceptrum.ui.background.LocalBackgroundChrome
+import com.shibi.sceptrum.ui.pairing.PairingActions
+import com.shibi.sceptrum.ui.pairing.PairingPane
 import com.shibi.sceptrum.ui.remote.glassFill
 
-/** Devices placeholder: list on the left, details on the right when unfolded. */
+class DevicesActions(
+    val onSelect: (String) -> Unit = {},
+    val onPair: (DiscoveredRow) -> Unit = {},
+    val onRefresh: () -> Unit = {},
+    val onManualChange: (String) -> Unit = {},
+    val onManualSubmit: () -> Unit = {},
+)
+
+/**
+ * Saved and discovered devices. Pairing replaces the list when folded, and
+ * fills the detail pane when unfolded.
+ */
 @Composable
 fun DevicesScreen(
     widthClass: WindowWidthClass,
+    state: DevicesUiState,
+    pairing: PairingUiState,
     modifier: Modifier = Modifier,
+    actions: DevicesActions = DevicesActions(),
+    pairingActions: PairingActions = PairingActions(),
 ) {
+    val pairingOpen = pairing != PairingUiState.Idle
     if (widthClass.isMultiPane) {
         Row(modifier.fillMaxSize()) {
-            DeviceListPane(modifier = Modifier.weight(0.42f).fillMaxHeight())
-            DeviceDetailPane(modifier = Modifier.weight(0.58f).fillMaxHeight())
+            DeviceListPane(state, actions, modifier = Modifier.weight(0.42f).fillMaxHeight())
+            Box(
+                modifier = Modifier
+                    .weight(0.58f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 0.dp, end = 16.dp, top = 72.dp, bottom = 16.dp),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                if (pairingOpen) {
+                    PairingPane(pairing, pairingActions)
+                } else {
+                    DeviceDetailCard()
+                }
+            }
+        }
+    } else if (pairingOpen) {
+        Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            SectionHeader(title = stringResource(R.string.devices_title))
+            PairingPane(pairing, pairingActions, modifier = Modifier.padding(horizontal = 16.dp))
         }
     } else {
-        DeviceListPane(modifier = modifier.fillMaxSize())
+        DeviceListPane(state, actions, modifier = modifier.fillMaxSize())
     }
 }
 
+/**
+ * The device list. [showDiscovery] off gives the short version beside the
+ * remote: saved devices only.
+ */
 @Composable
-fun DeviceListPane(modifier: Modifier = Modifier) {
+fun DeviceListPane(
+    state: DevicesUiState,
+    actions: DevicesActions,
+    modifier: Modifier = Modifier,
+    showDiscovery: Boolean = true,
+) {
     Column(modifier = modifier.verticalScroll(rememberScrollState())) {
         SectionHeader(
             title = stringResource(R.string.devices_title),
             subtitle = stringResource(R.string.devices_subtitle),
         )
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            GlassCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.Tv,
-                        contentDescription = null,
-                        modifier = Modifier.size(36.dp),
-                    )
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text(
-                            text = stringResource(R.string.devices_empty_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = stringResource(R.string.devices_empty_body),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+            if (state.saved.isNotEmpty()) {
+                GroupLabel(stringResource(R.string.devices_saved))
+                state.saved.forEach { row -> SavedDeviceCard(row, onClick = { actions.onSelect(row.id) }) }
+            } else if (!showDiscovery || (state.discovered.isEmpty() && !state.scanning)) {
+                EmptyCard()
             }
-            AddDeviceButton()
+            if (showDiscovery) {
+                DiscoverySection(state, actions)
+                ManualEntryCard(state, actions)
+            }
         }
     }
 }
 
 @Composable
-private fun AddDeviceButton() {
+private fun DiscoverySection(state: DevicesUiState, actions: DevicesActions) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        GroupLabel(stringResource(R.string.devices_on_network), modifier = Modifier.weight(1f))
+        if (state.scanning) {
+            BusyIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+        }
+    }
+    when {
+        state.discoveryFailed -> HintText(stringResource(R.string.devices_discovery_failed))
+        state.scanning && state.discovered.isEmpty() -> HintText(stringResource(R.string.devices_searching))
+        state.discovered.isEmpty() -> HintText(stringResource(R.string.devices_none_found))
+    }
+    state.discovered.forEach { row -> DiscoveredDeviceCard(row, onPair = { actions.onPair(row) }) }
+    if (!state.scanning) {
+        PillButton(
+            text = stringResource(R.string.devices_search_again),
+            icon = Icons.Rounded.Refresh,
+            onClick = actions.onRefresh,
+        )
+    }
+}
+
+@Composable
+private fun SavedDeviceCard(row: SavedRow, onClick: () -> Unit) {
     ContrastSurface(
         color = glassFill(),
-        shape = RoundedCornerShape(percent = 50),
-        border = BorderStroke(1.dp, LocalBackgroundChrome.current.glassBorder),
-        onClick = {},
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(52.dp),
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(if (row.active) 2.dp else 1.dp, if (row.active) LocalBackgroundChrome.current.accentText else LocalBackgroundChrome.current.cardBorder),
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.Add, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.devices_add_ip),
-                style = MaterialTheme.typography.labelLarge,
-            )
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Tv, contentDescription = null, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(row.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (row.online) {
+                        Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        text = if (row.online) stringResource(R.string.devices_online) + " · " + row.host else row.host,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (row.active) {
+                Icon(
+                    imageVector = Icons.Rounded.CheckCircle,
+                    contentDescription = stringResource(R.string.devices_active),
+                    modifier = Modifier.size(26.dp),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun DeviceDetailPane(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.padding(16.dp),
-        contentAlignment = Alignment.TopCenter,
-    ) {
-        GlassCard(
-            title = stringResource(R.string.devices_detail_title),
-            modifier = Modifier.padding(top = 72.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.devices_detail_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+private fun DiscoveredDeviceCard(row: DiscoveredRow, onPair: () -> Unit) {
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Tv, contentDescription = null, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(row.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(row.host, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            PillButton(text = stringResource(R.string.devices_pair), onClick = onPair, fillWidth = false)
         }
     }
+}
+
+@Composable
+private fun ManualEntryCard(state: DevicesUiState, actions: DevicesActions) {
+    GlassCard(title = stringResource(R.string.devices_add_ip)) {
+        OutlinedTextField(
+            value = state.manual.text,
+            onValueChange = actions.onManualChange,
+            label = { Text(stringResource(R.string.devices_ip_label)) },
+            placeholder = { Text(stringResource(R.string.devices_ip_hint)) },
+            singleLine = true,
+            isError = state.manual.invalid,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { actions.onManualSubmit() }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        when {
+            state.manual.invalid -> HintText(stringResource(R.string.devices_ip_invalid), Modifier.padding(top = 6.dp))
+            state.manual.notLocal -> HintText(stringResource(R.string.devices_ip_not_local), Modifier.padding(top = 6.dp))
+            else -> HintText(stringResource(R.string.devices_ip_tip), Modifier.padding(top = 6.dp))
+        }
+        Spacer(Modifier.size(10.dp))
+        PillButton(
+            text = stringResource(R.string.devices_pair),
+            icon = Icons.Rounded.Add,
+            onClick = actions.onManualSubmit,
+        )
+    }
+}
+
+@Composable
+private fun EmptyCard() {
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Tv, contentDescription = null, modifier = Modifier.size(36.dp))
+            Spacer(Modifier.width(14.dp))
+            Column {
+                Text(
+                    text = stringResource(R.string.devices_empty_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = stringResource(R.string.devices_empty_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeviceDetailCard() {
+    GlassCard(title = stringResource(R.string.devices_detail_title)) {
+        Text(
+            text = stringResource(R.string.devices_detail_body),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** A small heading on the page: coloured from the backdrop. */
+@Composable
+private fun GroupLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onBackground,
+        modifier = modifier.padding(top = 4.dp),
+    )
+}
+
+/** Secondary text. Inside a card it takes the card's variant colour; on the page, the backdrop's. */
+@Composable
+private fun HintText(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.heightIn(min = 20.dp),
+    )
 }

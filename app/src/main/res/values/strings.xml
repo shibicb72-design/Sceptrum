@@ -42,10 +42,47 @@
     <string name="devices_title">Devices</string>
     <string name="devices_subtitle">TVs and projectors on your Wi-Fi</string>
     <string name="devices_empty_title">No devices yet</string>
-    <string name="devices_empty_body">Discovery and pairing for Google TV arrive in a later update.</string>
+    <string name="devices_empty_body">Make sure the TV is on and on the same Wi-Fi, or add it by its IP address.</string>
+    <string name="devices_saved">Your devices</string>
+    <string name="devices_on_network">On your network</string>
+    <string name="devices_searching">Searching for Google TV devices…</string>
+    <string name="devices_search_again">Search again</string>
+    <string name="devices_discovery_failed">Network search is unavailable. Add the TV by its IP address.</string>
+    <string name="devices_none_found">No new devices found.</string>
+    <string name="devices_pair">Pair</string>
+    <string name="devices_active">In use</string>
+    <string name="devices_online">On the network</string>
+    <string name="devices_last_seen">Last seen at %1$s</string>
     <string name="devices_add_ip">Add by IP address</string>
+    <string name="devices_ip_label">IP address</string>
+    <string name="devices_ip_hint">For example 192.168.1.50</string>
+    <string name="devices_ip_invalid">Enter an address like 192.168.1.50.</string>
+    <string name="devices_ip_not_local">That address is outside your home network. Guest Wi-Fi often blocks remotes.</string>
+    <string name="devices_ip_tip">Tip: reserve this address for the TV in your router so it never changes.</string>
     <string name="devices_detail_title">Device details</string>
     <string name="devices_detail_body">Pick a device to see its status here.</string>
+
+    <!-- Pairing -->
+    <string name="pairing_title">Pair with %1$s</string>
+    <string name="pairing_connecting">Connecting to %1$s…</string>
+    <string name="pairing_enter_code">Enter the code shown on %1$s</string>
+    <string name="pairing_code_label">6-character code</string>
+    <string name="pairing_checking">Checking the code…</string>
+    <string name="pairing_backspace">Delete</string>
+    <string name="pairing_paired">Paired with %1$s</string>
+    <string name="pairing_paired_body">You can now use the remote.</string>
+    <string name="pairing_open_remote">Open remote</string>
+    <string name="pairing_retry">Try again</string>
+    <string name="pairing_cancel">Cancel</string>
+    <string name="pairing_done">Done</string>
+    <string name="pairing_error_wrong_code">That code doesn\'t match. Check the TV and try again.</string>
+    <string name="pairing_error_bad_secret">That code doesn\'t match. The TV now shows a new code.</string>
+    <string name="pairing_error_rejected">The TV refused pairing.</string>
+    <string name="pairing_error_rejected_hint">Close any pairing message on the TV, then try again.</string>
+    <string name="pairing_error_timeout">No answer from the TV.</string>
+    <string name="pairing_error_timeout_hint">Is it on and on the same Wi-Fi?</string>
+    <string name="pairing_error_unreachable">Can\'t reach %1$s:%2$d.</string>
+    <string name="pairing_error_unreachable_hint">Check the TV is on, the address is right and the phone is on the same Wi-Fi (not a guest network).</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>

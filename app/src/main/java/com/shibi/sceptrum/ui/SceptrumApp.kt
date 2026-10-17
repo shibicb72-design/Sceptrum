@@ -12,10 +12,14 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -25,15 +29,21 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.shibi.sceptrum.appGraph
 import com.shibi.sceptrum.appearance.AppearanceViewModel
+import com.shibi.sceptrum.devices.DevicesViewModel
 import com.shibi.sceptrum.domain.AppBackground
+import com.shibi.sceptrum.domain.PairingUiState
 import com.shibi.sceptrum.domain.WindowWidthClass
 import com.shibi.sceptrum.domain.shownWith
 import com.shibi.sceptrum.ui.background.AppBackgroundHost
+import com.shibi.sceptrum.pairing.PairingViewModel
+import com.shibi.sceptrum.ui.devices.DevicesActions
 import com.shibi.sceptrum.ui.devices.DevicesScreen
 import com.shibi.sceptrum.ui.nav.NavCarousel
 import com.shibi.sceptrum.ui.nav.NavSection
 import com.shibi.sceptrum.ui.nav.SectionRoutes
+import com.shibi.sceptrum.ui.pairing.PairingActions
 import com.shibi.sceptrum.ui.remote.RemoteScreen
 import com.shibi.sceptrum.ui.settings.SettingsScreen
 import com.shibi.sceptrum.ui.theme.SceptrumTheme
@@ -48,6 +58,27 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val section = SectionRoutes.sectionFor(backStackEntry?.destination?.route) ?: NavSection.Remote
+    val factory = LocalContext.current.appGraph.viewModelFactory
+    val devices: DevicesViewModel = viewModel(factory = factory)
+    val pairing: PairingViewModel = viewModel(factory = factory)
+    val devicesState by devices.state.collectAsStateWithLifecycle()
+    val pairingState by pairing.state.collectAsStateWithLifecycle()
+    val deviceActions = DevicesActions(
+        onSelect = devices::select,
+        onPair = { pairing.begin(devices.targetFor(it)) },
+        onRefresh = devices::refresh,
+        onManualChange = devices::onManualChange,
+        onManualSubmit = { devices.manualTarget()?.let(pairing::begin) },
+    )
+    val pairingActions = PairingActions(
+        onCodeChange = pairing::onCodeChange,
+        onRetry = pairing::retry,
+        onCancel = pairing::cancel,
+        onOpenRemote = {
+            pairing.cancel()
+            navController.openSection(NavSection.Remote)
+        },
+    )
 
     SceptrumFrame(darkTheme = darkTheme, background = background) { widthClass ->
         SceptrumScaffold(
@@ -58,8 +89,24 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
                 navController = navController,
                 startDestination = SectionRoutes.Start,
             ) {
-                composable(SectionRoutes.Remote) { RemoteScreen(widthClass) }
-                composable(SectionRoutes.Devices) { DevicesScreen(widthClass) }
+                composable(SectionRoutes.Remote) {
+                    RemoteScreen(widthClass, devices = devicesState, deviceActions = deviceActions)
+                }
+                composable(SectionRoutes.Devices) {
+                    // Each visit to Devices scans for one window; leaving stops it.
+                    DisposableEffect(Unit) {
+                        devices.refresh()
+                        onDispose { devices.stopScan() }
+                    }
+                    BackHandler(enabled = pairingState != PairingUiState.Idle) { pairing.cancel() }
+                    DevicesScreen(
+                        widthClass = widthClass,
+                        state = devicesState,
+                        pairing = pairingState,
+                        actions = deviceActions,
+                        pairingActions = pairingActions,
+                    )
+                }
                 composable(SectionRoutes.Settings) {
                     SettingsScreen(
                         widthClass = widthClass,
@@ -85,9 +132,11 @@ fun SceptrumFrame(
     content: @Composable (WindowWidthClass) -> Unit,
 ) {
     SceptrumTheme(darkTheme = darkTheme) {
-        AppBackgroundHost(background = background.shownWith(darkTheme)) {
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                content(WindowWidthClass.fromWidthDp(maxWidth.value))
+        CompositionLocalProvider(LocalReduceMotion provides systemReducesMotion()) {
+            AppBackgroundHost(background = background.shownWith(darkTheme)) {
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    content(WindowWidthClass.fromWidthDp(maxWidth.value))
+                }
             }
         }
     }
