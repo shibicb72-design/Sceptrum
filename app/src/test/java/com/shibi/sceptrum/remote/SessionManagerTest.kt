@@ -164,9 +164,51 @@ class SessionManagerTest {
     }
 
     @Test
+    fun textAndAppLinksReachTheTvWithItsImeCounters() {
+        val tv = tv()
+        active.value = tv.asDevice("Projector").copy(mac = "AA:BB:CC:01:02:03")
+        manager.acquire()
+        await { it.status == ConnectionStatus.Connected }
+        assertEquals("AA:BB:CC:01:02:03", manager.state.value.mac)
+        assertEquals("Sceptrum Labs", manager.state.value.vendor)
+
+        tv.pushCurrentApp("com.google.android.youtube.tv")
+        tv.pushImeField(imeCounter = 6, fieldCounter = 2)
+        tv.pushImeShow(value = "", label = "Search")
+        val focused = await { it.textField?.label == "Search" && it.currentApp != null }
+        assertEquals("com.google.android.youtube.tv", focused.currentApp)
+
+        assertTrue(manager.sendText("never gonna"))
+        assertTrue(manager.launchApp("https://www.netflix.com/title"))
+        eventually { tv.imeEdits.isNotEmpty() && tv.appLinks.isNotEmpty() }
+        val edit = tv.imeEdits.single()
+        assertEquals(6, edit.ime_counter)
+        assertEquals(2, edit.field_counter)
+        assertEquals("never gonna", edit.edit_info.single().text_field_status?.value_)
+        assertEquals(listOf("https://www.netflix.com/title"), tv.appLinks.toList())
+    }
+
+    @Test
+    fun renamingTheActiveDeviceKeepsTheConnection() {
+        val tv = tv()
+        val device = tv.asDevice("Projector")
+        active.value = device
+        manager.acquire()
+        await { it.status == ConnectionStatus.Connected }
+
+        active.value = device.copy(name = "Living room")
+        await { it.deviceName == "Living room" && it.status == ConnectionStatus.Connected }
+        Thread.sleep(200)
+        assertEquals(1, tv.remoteConnections.get())
+        assertTrue(manager.send(23, KeyDirection.Short))
+    }
+
+    @Test
     fun noDeviceMeansNoDeviceStatus() {
         assertEquals(ConnectionStatus.NoDevice, manager.state.value.status)
         assertFalse(manager.send(19, KeyDirection.Short))
+        assertFalse(manager.sendText("a"))
+        assertFalse(manager.launchApp("plex://"))
     }
 
     private fun closedPort() = java.net.ServerSocket(0).use { it.localPort }
