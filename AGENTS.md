@@ -20,3 +20,4 @@
 ## Lessons for agents
 
 - Adding a field to a data class changes its `equals()`: search the tests for `assertEquals` on that type and update them. A `Throwable` field never compares equal to a freshly built one, so compare `value.copy(error = null)` and check the exception separately (PR 5b, `LinkState.Retrying.error`).
+- Compose UI test: `assertExists()` and `assertDoesNotExist()` are member functions of `SemanticsNodeInteraction`; importing them fails with "Unresolved reference". Only extension assertions and actions (`assertIsSelected`, `assertIsNotEnabled`, `performClick`, `performScrollTo`) are imported (PR 5b).

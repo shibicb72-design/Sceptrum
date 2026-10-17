@@ -6,8 +6,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.shibi.sceptrum.devices.DevicesUiState
 import com.shibi.sceptrum.domain.AppBackground
+import com.shibi.sceptrum.domain.PairingError
+import com.shibi.sceptrum.domain.PairingTarget
+import com.shibi.sceptrum.domain.PairingUiState
 import com.shibi.sceptrum.ui.SceptrumFrame
+import com.shibi.sceptrum.ui.devices.DevicesScreen
 import com.shibi.sceptrum.ui.settings.ErrorLogScreen
 import com.shibi.sceptrum.ui.settings.SettingsScreen
 import org.junit.Assert.assertEquals
@@ -97,5 +102,20 @@ class ErrorLogScreenTest {
         compose.onNodeWithText("Debugging / Error log").performScrollTo().assertExists()
         compose.onNodeWithText("Open error log").performScrollTo().performClick()
         assertEquals(1, opened)
+    }
+
+    @Test
+    fun failedPairingCardPointsToTheErrorLog() {
+        compose.setContent {
+            SceptrumFrame(darkTheme = true, background = AppBackground.Default) { widthClass ->
+                DevicesScreen(
+                    widthClass = widthClass,
+                    state = DevicesUiState(),
+                    pairing = PairingUiState.Failed(PairingTarget("Projector", "192.168.1.50"), PairingError.Handshake),
+                )
+            }
+        }
+        compose.onNodeWithText("Details in Settings > Debugging / Error log.").performScrollTo().assertExists()
+        compose.onNodeWithText("Copy details").assertDoesNotExist()
     }
 }

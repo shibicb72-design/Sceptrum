@@ -45,7 +45,7 @@ sealed interface PairingUiState {
         val error: PairingError? = null,
     ) : PairingUiState
 
-    /** [report] is the text "Copy details" puts on the clipboard. */
+    /** [report] is the driver's pairing report; the same details go to the error log. */
     data class Failed(val target: PairingTarget, val error: PairingError, val report: String = "") : PairingUiState
 
     data class Paired(val target: PairingTarget, val deviceId: String) : PairingUiState

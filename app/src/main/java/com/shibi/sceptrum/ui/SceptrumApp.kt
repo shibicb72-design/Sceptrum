@@ -113,10 +113,6 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
             pairing.cancel()
             navController.openSection(NavSection.Remote)
         },
-        onCopyDetails = { report ->
-            val label = context.getString(R.string.pairing_details_clip_label)
-            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(label, report))
-        },
     )
 
     SceptrumFrame(darkTheme = darkTheme, background = background) { widthClass ->
