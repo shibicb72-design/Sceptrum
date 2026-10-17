@@ -160,6 +160,46 @@ class AppsViewModelTest {
     }
 
     @Test
+    fun learnedAppsFollowTheGridAndCanBeRemovedForGood() {
+        val learned = TestStores.memoryLearnedApps(collector)
+        val withLearned = AppsViewModel(repository, session, learnedApps = learned)
+        val job = collector.launch { withLearned.state.collect {} }
+        fun await(predicate: (AppsUiState) -> Boolean) = runBlocking { withTimeout(5_000) { withLearned.state.first(predicate) } }
+        runBlocking {
+            repository.savePaired(PairedDevice(id = "mac:01", name = "Projector", host = "192.168.1.50"))
+            learned.record("mac:01", "com.google.android.youtube.tv")
+            learned.record("mac:01", "org.xbmc.kodi")
+            learned.record("mac:01", "tv.pluto.android")
+            learned.record("mac:01", "tv.pluto.android")
+            learned.record("mac:02", "com.other.tvonly")
+        }
+        val shown = await { it.learned.size == 2 }
+        assertEquals("the curated grid is unchanged", AppShortcuts.defaults, shown.shortcuts)
+        assertEquals("YouTube is a default; most seen first", listOf("Pluto", "Kodi"), shown.learned.map { it.label })
+
+        // Launching a learned tile sends its market link, which passes the allow-list.
+        withLearned.launch(shown.learned.last().shortcut)
+        assertEquals(listOf("market://launch?id=org.xbmc.kodi"), session.links)
+
+        withLearned.removeLearned("tv.pluto.android")
+        assertEquals(listOf("Kodi"), await { it.learned.size == 1 }.learned.map { it.label })
+        assertFalse("the removal sticks", runBlocking { learned.record("mac:01", "tv.pluto.android") })
+        assertEquals(listOf("Kodi"), withLearned.state.value.learned.map { it.label })
+        job.cancel()
+    }
+
+    @Test
+    fun noDeviceShowsNoLearnedApps() {
+        val learned = TestStores.memoryLearnedApps(collector)
+        runBlocking { learned.record("mac:01", "org.xbmc.kodi") }
+        val noDevice = AppsViewModel(repository, session, learnedApps = learned)
+        val job = collector.launch { noDevice.state.collect {} }
+        val state = runBlocking { withTimeout(5_000) { noDevice.state.first { true } } }
+        assertTrue(state.learned.isEmpty())
+        job.cancel()
+    }
+
+    @Test
     fun theTvsCurrentAppCanBeAddedOnce() {
         pair()
         session.state.value = session.state.value.copy(currentApp = "org.xbmc.kodi")

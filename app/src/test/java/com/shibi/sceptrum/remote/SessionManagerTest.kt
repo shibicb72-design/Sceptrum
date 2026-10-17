@@ -5,6 +5,7 @@ import com.shibi.sceptrum.atv.KeyDirection
 import com.shibi.sceptrum.atv.RemoteConfig
 import com.shibi.sceptrum.atv.VolumeInfo
 import com.shibi.sceptrum.atv.proto.remote.RemoteDirection
+import com.shibi.sceptrum.devices.TestStores
 import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.session.NetworkEvents
@@ -248,6 +249,76 @@ class SessionManagerTest {
         eventually { log.entries.value.any { it.step == "Connection" && it.message.startsWith("Connection lost") } }
         runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
         assertEquals(1, log.entries.value.count { it.step == "Connection" })
+        m.release()
+    }
+
+    @Test
+    fun theTvsForegroundAppsAreLearnedPerDevice() {
+        val learned = TestStores.memoryLearnedApps(scope)
+        val m = SessionManager(active, { AtvFixtures.client }, scope, config, network, graceMs = 300, foregroundApps = learned)
+        val tv = tv()
+        active.value = tv.asDevice("Projector")
+        m.acquire()
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+
+        // Home, Kodi, Home, Kodi: each switch is awaited so no state is conflated away.
+        for (app in listOf("com.google.android.tvlauncher", "org.xbmc.kodi", "com.google.android.tvlauncher", "org.xbmc.kodi")) {
+            tv.pushCurrentApp(app)
+            runBlocking { withTimeout(8_000) { m.state.first { it.currentApp == app } } }
+            Thread.sleep(100)
+        }
+
+        val stored = runBlocking {
+            withTimeout(8_000) { learned.store.first { (it.devices["mac:Projector"]?.apps?.firstOrNull()?.seen_count ?: 0) >= 2 } }
+        }
+        val apps = stored.devices.getValue("mac:Projector").apps
+        assertEquals("the launcher is never learned", listOf("org.xbmc.kodi"), apps.map { it.package_name })
+        assertEquals(setOf("mac:Projector"), stored.devices.keys)
+        m.release()
+    }
+
+    @Test
+    fun aReconnectReportingTheSameAppDoesNotCountItAgain() {
+        val reports = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+        val m = SessionManager(
+            active, { AtvFixtures.client }, scope, config, network, graceMs = 300,
+            foregroundApps = { id, app -> reports += id to app },
+        )
+        val tv = tv()
+        active.value = tv.asDevice("Projector")
+        m.acquire()
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+        tv.pushCurrentApp("com.netflix.ninja")
+        eventually { reports.isNotEmpty() }
+
+        // The TV hangs up (as after an app link) and reports the same app on reconnect.
+        tv.dropConnections()
+        runBlocking { withTimeout(8_000) { m.state.first { it.currentApp == null } } }
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+        tv.pushCurrentApp("com.netflix.ninja")
+        runBlocking { withTimeout(8_000) { m.state.first { it.currentApp == "com.netflix.ninja" } } }
+        tv.pushCurrentApp("org.xbmc.kodi")
+        eventually { reports.size >= 2 }
+        assertEquals(listOf("mac:Projector" to "com.netflix.ninja", "mac:Projector" to "org.xbmc.kodi"), reports.toList())
+        m.release()
+    }
+
+    @Test
+    fun aFailingListenerIsLoggedAndTheSessionCarriesOn() {
+        val log = errorLog()
+        val m = SessionManager(
+            active, { AtvFixtures.client }, scope, config, network, graceMs = 300, errors = log,
+            foregroundApps = { _, _ -> throw IllegalStateException("store closed") },
+        )
+        val tv = tv()
+        active.value = tv.asDevice("Projector")
+        m.acquire()
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+        tv.pushCurrentApp("org.xbmc.kodi")
+        eventually { log.entries.value.any { it.step == "Learned apps" } }
+        tv.pushCurrentApp("tv.pluto.android")
+        runBlocking { withTimeout(8_000) { m.state.first { it.currentApp == "tv.pluto.android" } } }
+        assertEquals(ConnectionStatus.Connected, m.state.value.status)
         m.release()
     }
 

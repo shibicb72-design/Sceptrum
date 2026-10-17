@@ -147,6 +147,24 @@ class DevicesViewModelTest {
         assertNull(after.editing)
     }
 
+    @Test
+    fun forgettingATvAlsoDropsItsLearnedApps() {
+        val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.Unconfined)
+        val learned = TestStores.memoryLearnedApps(scope)
+        val withLearned = DevicesViewModel(repository, discovery, clock = { 9L }, learnedApps = learned)
+        runBlocking {
+            repository.savePaired(PairedDevice(id = "a", name = "A", host = "10.0.0.1"))
+            learned.record("a", "org.xbmc.kodi")
+            learned.record("b", "org.xbmc.kodi")
+        }
+        withLearned.edit("a")
+        runBlocking { withTimeout(5_000) { withLearned.state.first { it.editing?.id == "a" } } }
+        withLearned.askForget()
+        withLearned.confirmForget()
+        val stored = runBlocking { withTimeout(5_000) { learned.store.first { "a" !in it.devices } } }
+        assertEquals("other TVs keep theirs", setOf("b"), stored.devices.keys)
+    }
+
     private class FakeDiscovery : TvDiscovery {
         override val state = MutableStateFlow(DiscoveryState())
         var scans = 0

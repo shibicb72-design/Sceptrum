@@ -154,6 +154,34 @@ class AppShortcutsTest {
     }
 
     @Test
+    fun readableNamesFromUnknownPackages() {
+        assertEquals("Pluto", AppShortcuts.labelForPackage("tv.pluto.android"))
+        assertEquals("Geforcenow", AppShortcuts.labelForPackage("com.nvidia.geforcenow"))
+        assertEquals("Bar", AppShortcuts.labelForPackage("com.foo.bar.tv.livingroom"))
+        assertEquals("Xgimi", AppShortcuts.labelForPackage("com.xgimi.xgimitv"))
+        assertEquals("Joyn", AppShortcuts.labelForPackage("de.prosiebensat1digital.joyn.androidtv"))
+        assertEquals("Myapp", AppShortcuts.labelForPackage("com.example.myapp"))
+        assertEquals("Apple TV", AppShortcuts.labelForPackage("com.apple.atve.androidtv.appletv"))
+        assertEquals("all parts generic: the last one", "Tv", AppShortcuts.labelForPackage("com.android.tv"))
+    }
+
+    @Test
+    fun launchLinksPreferAKnownDeepLink() {
+        assertEquals("https://www.youtube.com", AppShortcuts.launchLinkFor("com.google.android.youtube.tv"))
+        assertEquals("plex://", AppShortcuts.launchLinkFor("com.plexapp.android"))
+        assertEquals("market://launch?id=org.xbmc.kodi", AppShortcuts.launchLinkFor("org.xbmc.kodi"))
+        AppShortcuts.knownPackages.keys.forEach { assertTrue(it, AppShortcuts.isAllowed(AppShortcuts.launchLinkFor(it))) }
+        assertTrue(AppShortcuts.covers(AppShortcuts.defaults[0], "com.google.android.youtube.tv"))
+        assertTrue(AppShortcuts.covers(AppShortcut("Kodi", "market://launch?id=org.xbmc.kodi"), "org.xbmc.kodi"))
+        assertFalse(AppShortcuts.covers(AppShortcuts.defaults[0], "org.xbmc.kodi"))
+        // A user-typed YouTube link with a trailing slash or upper-case scheme still covers it.
+        assertTrue(AppShortcuts.covers(AppShortcut("YT", "HTTPS://www.youtube.com/"), "com.google.android.youtube.tv"))
+        assertTrue(AppShortcuts.covers(AppShortcut("Netflix", "https://www.netflix.com/title/"), "com.netflix.ninja"))
+        assertTrue(AppShortcuts.covers(AppShortcut("Plex", "plex://"), "com.plexapp.android"))
+        assertFalse(AppShortcuts.covers(AppShortcut("Other", "https://www.youtube.com/watch"), "com.google.android.youtube.tv"))
+    }
+
+    @Test
     fun currentAppBecomesAMarketLaunchTile() {
         assertEquals(
             AppShortcut("YouTube", "market://launch?id=com.google.android.youtube.tv"),

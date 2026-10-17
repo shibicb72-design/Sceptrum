@@ -199,8 +199,18 @@ object DeviceStoreCrypto {
     private const val KEYSET_PREFS = "sceptrum_crypto"
     private const val MASTER_KEY_URI = "android-keystore://sceptrum_master"
 
-    /** AES256-GCM keyset in its own SharedPreferences, wrapped by a Keystore master key. */
-    fun aead(context: Context): Aead {
+    @Volatile
+    private var shared: Aead? = null
+
+    /**
+     * AES256-GCM keyset in its own SharedPreferences, wrapped by a Keystore
+     * master key. Built once per process: the device and learned-apps stores
+     * share it, and two builders racing on a first run could each write a keyset.
+     */
+    @Synchronized
+    fun aead(context: Context): Aead = shared ?: build(context).also { shared = it }
+
+    private fun build(context: Context): Aead {
         AeadConfig.register()
         return AndroidKeysetManager.Builder()
             .withSharedPref(context, KEYSET_NAME, KEYSET_PREFS)

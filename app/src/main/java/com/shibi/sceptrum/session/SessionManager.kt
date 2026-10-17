@@ -12,6 +12,7 @@ import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.domain.AppShortcuts
 import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.store.PairedDevice
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -59,6 +61,15 @@ interface RemoteSession {
     fun retry()
 }
 
+/** Hears each foreground app a TV reports; the learned-apps store in the app, a list in tests. */
+fun interface ForegroundAppListener {
+    /**
+     * Called when [deviceId] reports a foreground app other than its last one;
+     * must not block. A very fast switch (A, B, A) can be conflated and B missed.
+     */
+    fun onForegroundApp(deviceId: String, appPackage: String)
+}
+
 /** Network change notifications; Android's ConnectivityManager in the app, a fake in tests. */
 interface NetworkEvents {
     /** [onChange] gets true when the phone moved to another network or address. */
@@ -82,6 +93,8 @@ class SessionManager(
     private val network: NetworkEvents? = null,
     private val graceMs: Long = GRACE_MS,
     private val errors: ErrorLog? = null,
+    /** Learns the apps the TV opens (docs/apps-list-options.md, Option A). */
+    private val foregroundApps: ForegroundAppListener? = null,
 ) : RemoteSession {
     private val current = MutableStateFlow<Active?>(null)
 
@@ -114,6 +127,32 @@ class SessionManager(
             activeDevice.collect { onActiveDevice(it) }
         }
         watchLinkErrors()
+        if (foregroundApps != null) watchForegroundApp(foregroundApps)
+    }
+
+    /**
+     * Passes each foreground app change to [listener]. The last app is kept per
+     * device across disconnects, so a reconnect (or the hang-up after an app
+     * link) that reports the same app again does not count it twice.
+     */
+    private fun watchForegroundApp(listener: ForegroundAppListener) {
+        scope.launch {
+            val lastApp = HashMap<String, String>()
+            state
+                .map { s -> s.deviceId?.let { id -> s.currentApp?.let { id to it } } }
+                .distinctUntilChanged()
+                .collect { seen ->
+                    val (deviceId, app) = seen ?: return@collect
+                    if (lastApp.put(deviceId, app) == app) return@collect
+                    try {
+                        listener.onForegroundApp(deviceId, app)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        errors?.record("Learned apps", "Could not learn the app the TV opened: $app", e, tvLine())
+                    }
+                }
+        }
     }
 
     /**

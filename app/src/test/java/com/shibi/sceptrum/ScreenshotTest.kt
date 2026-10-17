@@ -22,6 +22,8 @@ import com.shibi.sceptrum.atv.VolumeInfo
 import com.shibi.sceptrum.devices.DeviceEdit
 import com.shibi.sceptrum.devices.DevicesUiState
 import com.shibi.sceptrum.domain.AppShortcutError
+import com.shibi.sceptrum.domain.AppShortcuts
+import com.shibi.sceptrum.domain.LearnedAppTile
 import com.shibi.sceptrum.domain.StandbyTips
 import com.shibi.sceptrum.power.PowerUiState
 import com.shibi.sceptrum.remote.AddAppForm
@@ -80,6 +82,16 @@ private val AppsShown = AppsUiState(
     currentApp = AppShortcut("Kodi", "market://launch?id=org.xbmc.kodi"),
 )
 private val AppsOpen = RemoteExtras(apps = AppsShown, panel = RemotePanel.Apps)
+
+/** Fold 7 cover screen at its narrowest (~400 dp) and a 610 dp split-screen window (Medium: side panel). */
+private const val Narrow = "w400dp-h880dp-xxhdpi"
+private const val Split = "w610dp-h900dp-xhdpi"
+private val LearnedNone = AppsUiState(canEdit = true)
+private val LearnedSeveral = AppsUiState(
+    canEdit = true,
+    learned = listOf("tv.pluto.android", "org.xbmc.kodi", "com.spotify.tv.android", "com.nvidia.geforcenow", "com.wbd.stream")
+        .map { LearnedAppTile(it, AppShortcuts.labelForPackage(it), AppShortcuts.launchLinkFor(it)) },
+)
 private val AppsEditing = AppsShown.copy(editing = true)
 private val PowerTip = RemoteExtras(
     power = PowerUiState.Failed("XGIMI Horizon S Max", StandbyTips.forDevice("XGIMI Horizon S Max", null, hasMac = true)),
@@ -288,6 +300,52 @@ class ScreenshotTest {
     @Config(qualifiers = Unfolded)
     @Test fun appsEditingUnfoldedDark() =
         shot("apps_editing_unfolded_dark", NavSection.Remote, dark = true, session = Connected, extras = RemoteExtras(apps = AppsEditing))
+
+    @Config(qualifiers = Narrow)
+    @Test fun appsLearnedEmptyNarrowPastel() = learnedShot("apps_learned_empty_400_pastel", LearnedNone, dark = false, panel = true)
+
+    @Config(qualifiers = Narrow)
+    @Test fun appsLearnedEmptyNarrowDark() = learnedShot("apps_learned_empty_400_dark", LearnedNone, dark = true, panel = true)
+
+    @Config(qualifiers = Narrow)
+    @Test fun appsLearnedNarrowPastel() = learnedShot("apps_learned_400_pastel", LearnedSeveral, dark = false, panel = true)
+
+    @Config(qualifiers = Narrow)
+    @Test fun appsLearnedNarrowDark() = learnedShot("apps_learned_400_dark", LearnedSeveral, dark = true, panel = true)
+
+    @Config(qualifiers = Split)
+    @Test fun appsLearnedEmptySplitPastel() = learnedShot("apps_learned_empty_610_pastel", LearnedNone, dark = false, panel = false)
+
+    @Config(qualifiers = Split)
+    @Test fun appsLearnedEmptySplitDark() = learnedShot("apps_learned_empty_610_dark", LearnedNone, dark = true, panel = false)
+
+    @Config(qualifiers = Split)
+    @Test fun appsLearnedSplitPastel() = learnedShot("apps_learned_610_pastel", LearnedSeveral, dark = false, panel = false)
+
+    @Config(qualifiers = Split)
+    @Test fun appsLearnedSplitDark() = learnedShot("apps_learned_610_dark", LearnedSeveral, dark = true, panel = false)
+
+    /** The learned tiles over a light blend backdrop, where glass is palest. */
+    @Test fun appsLearnedFoldedBlend() = shot(
+        "apps_learned_folded_blend",
+        NavSection.Remote,
+        dark = false,
+        background = AppBackground.Gradient("mermaid"),
+        session = Connected,
+        extras = RemoteExtras(apps = LearnedSeveral, panel = RemotePanel.Apps),
+    )
+
+    @Config(qualifiers = Unfolded)
+    @Test fun appsLearnedUnfoldedDark() =
+        shot("apps_learned_unfolded_dark", NavSection.Remote, dark = true, session = Connected, extras = RemoteExtras(apps = LearnedSeveral))
+
+    private fun learnedShot(name: String, apps: AppsUiState, dark: Boolean, panel: Boolean) = shot(
+        name,
+        NavSection.Remote,
+        dark = dark,
+        session = Connected,
+        extras = RemoteExtras(apps = apps, panel = if (panel) RemotePanel.Apps else RemotePanel.None),
+    )
 
     @Test fun swipePadFoldedPastel() =
         shot("swipe_pad_folded_pastel", NavSection.Remote, dark = false, session = Connected, extras = RemoteExtras(swipeMode = true))

@@ -3,6 +3,7 @@ package com.shibi.sceptrum.ui.remote
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -12,6 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,6 +35,10 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Swipe
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -45,6 +53,7 @@ import com.shibi.sceptrum.remote.AppsUiState
 import com.shibi.sceptrum.remote.KeyboardUiState
 import com.shibi.sceptrum.session.SessionState
 import com.shibi.sceptrum.ui.GlassCard
+import com.shibi.sceptrum.ui.background.LocalBackgroundChrome
 import com.shibi.sceptrum.ui.devices.DeviceListPane
 import com.shibi.sceptrum.ui.devices.DevicesActions
 
@@ -93,7 +102,8 @@ fun RemoteScreen(
                     state = extras.apps,
                     actions = extras.appsActions,
                     onClose = { extras.onPanel(RemotePanel.None) },
-                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                    // The pane is a lazy grid and scrolls itself.
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
             } else {
                 RemotePad(session, actions, extras, compact = true, modifier = Modifier.weight(1f).fillMaxWidth())
@@ -111,7 +121,7 @@ fun RemoteScreen(
         }
         WindowWidthClass.Medium -> Row(modifier.fillMaxSize()) {
             RemotePad(session, actions, extras, compact = false, modifier = Modifier.weight(0.6f).fillMaxHeight())
-            SidePanel(actions, extras, columns = 2, modifier = Modifier.weight(0.4f).fillMaxHeight())
+            SidePanel(actions, extras, modifier = Modifier.weight(0.4f).fillMaxHeight())
         }
         WindowWidthClass.Expanded -> Row(modifier.fillMaxSize()) {
             DeviceListPane(
@@ -121,7 +131,7 @@ fun RemoteScreen(
                 modifier = Modifier.weight(0.24f).fillMaxHeight(),
             )
             RemotePad(session, actions, extras, compact = false, modifier = Modifier.weight(0.46f).fillMaxHeight())
-            SidePanel(actions, extras, columns = 3, modifier = Modifier.weight(0.30f).fillMaxHeight())
+            SidePanel(actions, extras, modifier = Modifier.weight(0.30f).fillMaxHeight())
         }
     }
 }
@@ -247,29 +257,48 @@ private fun MediaKey(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
     RemoteKey(icon, stringResource(label), size = 52.dp) { actions.onTap(key) }
 }
 
-/** Apps, keyboard and number pad beside the remote when there is room. */
+/**
+ * Keyboard, apps and number pad beside the remote when there is room. The
+ * keyboard card stays on top, outside the scrolling grid, so its field keeps
+ * focus (a lazy item scrolled away is disposed and the IME would close). The
+ * apps and number pad share one lazy grid; learned tiles past
+ * [com.shibi.sceptrum.domain.LearnedApps.PREVIEW] wait behind "Show all" so
+ * the number pad stays near.
+ */
 @Composable
-internal fun SidePanel(actions: RemoteActions, extras: RemoteExtras, columns: Int, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        AppsCard(extras.apps, extras.appsActions, columns = columns)
-        KeyboardCard(extras.keyboard, extras.typing)
-        GlassCard(title = stringResource(R.string.remote_panel_numbers)) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                listOf(listOf(1, 2, 3), listOf(4, 5, 6), listOf(7, 8, 9), listOf(0))
-                    .forEach { row ->
-                        KeyRow {
-                            row.forEach { digit ->
-                                RemoteTextKey(digit.toString(), size = 56.dp) { actions.onTap(RemoteKey.digit(digit)) }
-                            }
+internal fun SidePanel(actions: RemoteActions, extras: RemoteExtras, modifier: Modifier = Modifier) {
+    val dark = !LocalBackgroundChrome.current.isLight
+    var showAll by rememberSaveable { mutableStateOf(false) }
+    Column(modifier) {
+        KeyboardCard(extras.keyboard, extras.typing, modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 6.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(AppTileMinWidth),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            appsSection(extras.apps, extras.appsActions, dark, showAllLearned = showAll, onShowAllLearned = { showAll = it })
+            item(key = "numbers", contentType = "numbers", span = { GridItemSpan(maxLineSpan) }) {
+                NumbersCard(actions, modifier = Modifier.padding(top = 6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NumbersCard(actions: RemoteActions, modifier: Modifier = Modifier) {
+    GlassCard(title = stringResource(R.string.remote_panel_numbers), modifier = modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf(listOf(1, 2, 3), listOf(4, 5, 6), listOf(7, 8, 9), listOf(0))
+                .forEach { row ->
+                    KeyRow {
+                        row.forEach { digit ->
+                            RemoteTextKey(digit.toString(), size = 56.dp) { actions.onTap(RemoteKey.digit(digit)) }
                         }
                     }
-            }
-            Spacer(Modifier.height(4.dp))
+                }
         }
+        Spacer(Modifier.height(4.dp))
     }
 }

@@ -7,8 +7,15 @@ import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.aead.PredefinedAeadParameters
 import androidx.datastore.core.DataStore
 import com.shibi.sceptrum.data.DeviceRepository
+import com.shibi.sceptrum.data.LearnedAppsRepository
+import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.store.DeviceStore
+import com.shibi.sceptrum.store.LearnedAppsStore
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,13 +44,34 @@ object TestStores {
      */
     fun memoryRepository(initial: DeviceStore = DeviceStore()) = DeviceRepository(MemoryDataStore(initial))
 
-    private class MemoryDataStore(initial: DeviceStore) : DataStore<DeviceStore> {
+    /** A LearnedAppsRepository over memory, for the same reason as [memoryRepository]. */
+    fun memoryLearnedApps(
+        scope: CoroutineScope,
+        errors: ErrorLog? = null,
+        clock: () -> Long = System::currentTimeMillis,
+        initial: LearnedAppsStore = LearnedAppsStore(),
+        deviceExists: suspend (String) -> Boolean = { true },
+    ) = LearnedAppsRepository(MemoryDataStore(initial), scope, errors, clock, deviceExists)
+
+    /**
+     * A DataStore over memory; [failWrites] makes every update throw, as a full
+     * disk would, and [failReads] makes that many reads throw before one succeeds.
+     */
+    class MemoryDataStore<T>(initial: T) : DataStore<T> {
         private val state = MutableStateFlow(initial)
         private val lock = Mutex()
-        override val data: Flow<DeviceStore> = state
+        var failWrites: Boolean = false
+        val failReads = AtomicInteger(0)
+        override val data: Flow<T> = flow {
+            if (failReads.getAndUpdate { maxOf(0, it - 1) } > 0) throw IOException("read failed")
+            emitAll(state)
+        }
 
-        override suspend fun updateData(transform: suspend (t: DeviceStore) -> DeviceStore): DeviceStore =
-            lock.withLock { transform(state.value).also { state.value = it } }
+        override suspend fun updateData(transform: suspend (t: T) -> T): T =
+            lock.withLock {
+                if (failWrites) throw IOException("disk full")
+                transform(state.value).also { state.value = it }
+            }
     }
 
     /** Cancel [scope] to release the file before opening another store on it. */

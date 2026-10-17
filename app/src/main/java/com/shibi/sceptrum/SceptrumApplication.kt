@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.shibi.sceptrum.atv.RemoteConfig
 import com.shibi.sceptrum.data.DeviceRepository
+import com.shibi.sceptrum.data.LearnedAppsRepository
 import com.shibi.sceptrum.data.StoredClientIdentityProvider
 import com.shibi.sceptrum.devices.DevicesViewModel
 import com.shibi.sceptrum.diagnostics.ErrorLog
@@ -31,6 +32,7 @@ import com.shibi.sceptrum.settings.RemoteSettingsViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 
 class SceptrumApplication : Application() {
     val graph: AppGraph by lazy { AppGraph(this) }
@@ -58,6 +60,11 @@ class AppGraph(context: Context) {
     /** Lives as long as the process; sessions close themselves after the grace period. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Apps each TV reported as its foreground app (docs/apps-list-options.md, Option A). */
+    val learnedApps: LearnedAppsRepository by lazy {
+        LearnedAppsRepository.create(app, appScope, errorLog) { id -> deviceRepository.devices.first().any { it.id == id } }
+    }
+
     val sessionManager: SessionManager by lazy {
         SessionManager(
             activeDevice = deviceRepository.activeDevice,
@@ -67,6 +74,7 @@ class AppGraph(context: Context) {
             config = RemoteConfig(packageName = app.packageName, appVersion = versionName()),
             network = ConnectivityNetworkEvents(app),
             errors = errorLog,
+            foregroundApps = learnedApps,
         )
     }
 
@@ -76,11 +84,11 @@ class AppGraph(context: Context) {
     val waker: Waker by lazy { UdpWaker(ConnectivityLanAddress(app)) }
 
     val viewModelFactory: ViewModelProvider.Factory = viewModelFactory {
-        initializer { DevicesViewModel(deviceRepository, discovery) }
+        initializer { DevicesViewModel(deviceRepository, discovery, learnedApps = learnedApps) }
         initializer { PairingViewModel(pairingGateway, deviceRepository, appVersion = versionName(), errors = errorLog) }
         initializer { RemoteViewModel(sessionManager, waker) }
         initializer { KeyboardViewModel(sessionManager, remotePreferences.keyPressTyping) }
-        initializer { AppsViewModel(deviceRepository, sessionManager, errors = errorLog) }
+        initializer { AppsViewModel(deviceRepository, sessionManager, errors = errorLog, learnedApps = learnedApps) }
         initializer { RemoteSettingsViewModel(remotePreferences) }
     }
 

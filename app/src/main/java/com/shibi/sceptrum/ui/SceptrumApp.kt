@@ -274,6 +274,7 @@ private fun RemoteRoute(
             onMoveUp = apps::moveUp,
             onMoveDown = apps::moveDown,
             onReset = apps::resetToDefaults,
+            onRemoveLearned = apps::removeLearned,
         )
     }
     RemoteScreen(
