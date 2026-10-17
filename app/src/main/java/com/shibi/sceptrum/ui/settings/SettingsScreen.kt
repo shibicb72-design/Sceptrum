@@ -34,6 +34,7 @@ import com.shibi.sceptrum.domain.AppBackground
 import com.shibi.sceptrum.domain.BackgroundCatalog
 import com.shibi.sceptrum.domain.WindowWidthClass
 import com.shibi.sceptrum.ui.GlassCard
+import com.shibi.sceptrum.ui.PillButton
 import com.shibi.sceptrum.ui.SectionHeader
 import com.shibi.sceptrum.ui.background.LocalBackgroundChrome
 import com.shibi.sceptrum.ui.background.toComposeColor
@@ -41,7 +42,8 @@ import com.shibi.sceptrum.ui.background.toComposeColor
 /**
  * Settings: Dark theme toggle and the pastel grid (Dark on paints the dark
  * backdrop over the pick without overwriting it; off restores it), keyboard
- * behaviour, About and the open-source licences.
+ * behaviour, the debugging card that opens the error log, About and the
+ * open-source licences.
  */
 @Composable
 fun SettingsScreen(
@@ -54,6 +56,8 @@ fun SettingsScreen(
     keyPressTyping: Boolean = false,
     onKeyPressTypingChange: (Boolean) -> Unit = {},
     versionName: String = "",
+    errorCount: Int = 0,
+    onOpenErrorLog: () -> Unit = {},
 ) {
     if (widthClass.isMultiPane) {
         Row(modifier.fillMaxSize()) {
@@ -69,6 +73,7 @@ fun SettingsScreen(
                 ) {
                     DarkThemeCard(darkTheme, onDarkThemeChange)
                     KeyboardSettingsCard(keyPressTyping, onKeyPressTypingChange)
+                    DebuggingCard(errorCount, onOpenErrorLog)
                     AboutCard(versionName)
                     LicencesCard()
                 }
@@ -92,6 +97,7 @@ fun SettingsScreen(
                 DarkThemeCard(darkTheme, onDarkThemeChange)
                 BackgroundCard(darkTheme, background, onSelectBackground, columns = 5)
                 KeyboardSettingsCard(keyPressTyping, onKeyPressTypingChange)
+                DebuggingCard(errorCount, onOpenErrorLog)
                 AboutCard(versionName)
                 LicencesCard()
             }
@@ -249,6 +255,19 @@ private fun KeyboardSettingsCard(keyPressTyping: Boolean, onChange: (Boolean) ->
             }
             Switch(checked = keyPressTyping, onCheckedChange = onChange)
         }
+    }
+}
+
+@Composable
+private fun DebuggingCard(errorCount: Int, onOpen: () -> Unit) {
+    GlassCard(title = stringResource(R.string.error_log_title)) {
+        Text(
+            text = stringResource(R.string.error_log_summary, errorCount),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        PillButton(text = stringResource(R.string.error_log_open), onClick = onOpen)
     }
 }
 

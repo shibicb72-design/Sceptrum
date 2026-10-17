@@ -78,4 +78,20 @@ class RemoteKeysTest {
         assertEquals(ConnectionStatus.NeedsPairing, ConnectionStatus.from(LinkState.NeedsPairing))
         assertEquals(ConnectionStatus.IdentityChanged, ConnectionStatus.from(LinkState.IdentityChanged))
     }
+
+    @Test
+    fun hangUpAfterAnAppLinkStaysReconnecting() {
+        assertEquals(
+            ConnectionStatus.Reconnecting,
+            ConnectionStatus.from(LinkState.Retrying(6, 3_200, DisconnectReason.Unreachable, afterAppLink = true)),
+        )
+        assertEquals(
+            ConnectionStatus.Reconnecting,
+            ConnectionStatus.from(LinkState.Retrying(6, 3_200, DisconnectReason.ConnectionLost, afterAppLink = true)),
+        )
+        assertEquals(
+            ConnectionStatus.Offline,
+            ConnectionStatus.from(LinkState.Retrying(6, 3_200, DisconnectReason.ConnectionLost)),
+        )
+    }
 }

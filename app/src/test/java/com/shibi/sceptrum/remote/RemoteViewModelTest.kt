@@ -160,6 +160,60 @@ class RemoteViewModelTest {
         assertEquals(1, session.retries)
     }
 
+    @Test
+    fun settingsFallsBackToTheNextLinkWhenTheTvShowsNoNewApp() = test {
+        vm.tap(RemoteKey.Settings)
+        runCurrent()
+        assertEquals(listOf(176 to KeyDirection.Short), session.sent)
+        assertTrue(session.links.isEmpty())
+        advanceTimeBy(1_501)
+        assertEquals(listOf("intent:#Intent;action=android.settings.SETTINGS;end"), session.links)
+        session.state.value = session.state.value.copy(currentApp = "com.android.tv.settings")
+        runCurrent()
+        advanceTimeBy(10_000)
+        assertEquals(1, session.links.size)
+    }
+
+    @Test
+    fun aKeyTheTvHonoursStopsTheChain() = test {
+        vm.tap(RemoteKey.Input)
+        runCurrent()
+        session.state.value = session.state.value.copy(currentApp = "com.xgimi.xhplayer")
+        runCurrent()
+        advanceTimeBy(10_000)
+        assertTrue(session.links.isEmpty())
+    }
+
+    @Test
+    fun theStepThatWorkedIsTriedFirstNextTime() = test {
+        vm.tap(RemoteKey.Settings)
+        runCurrent()
+        advanceTimeBy(1_501)
+        session.state.value = session.state.value.copy(currentApp = "com.android.tv.settings")
+        runCurrent()
+        session.state.value = session.state.value.copy(currentApp = "com.google.android.tvlauncher")
+        runCurrent()
+        session.sent.clear()
+        session.links.clear()
+        vm.tap(RemoteKey.Settings)
+        runCurrent()
+        assertEquals(listOf("intent:#Intent;action=android.settings.SETTINGS;end"), session.links)
+        assertTrue(session.sent.isEmpty())
+    }
+
+    @Test
+    fun shortcutsRejectWhenNotConnected() = test {
+        session.connected = false
+        val haptics = mutableListOf<RemoteHaptic>()
+        val collector = launch { vm.haptics.collect { haptics += it } }
+        runCurrent()
+        vm.tap(RemoteKey.Settings)
+        runCurrent()
+        assertTrue(haptics.contains(RemoteHaptic.Reject))
+        assertTrue(session.links.isEmpty())
+        collector.cancel()
+    }
+
 }
 
 /** A remote session that records what the view models send. */

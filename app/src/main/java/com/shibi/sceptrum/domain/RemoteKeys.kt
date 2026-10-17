@@ -79,7 +79,10 @@ enum class ConnectionStatus {
     val needsPairing: Boolean get() = this == NeedsPairing || this == IdentityChanged
 
     companion object {
-        /** Retries before the chip says Offline instead of Reconnecting (about 1.5 s of backoff). */
+        /**
+         * Retries before the chip says Offline instead of Reconnecting (about 1.5 s of backoff).
+         * A hang-up right after an app link is never Offline: it stays Reconnecting.
+         */
         const val OFFLINE_AFTER_ATTEMPTS = 4
 
         fun from(link: LinkState): ConnectionStatus = when (link) {
@@ -87,6 +90,7 @@ enum class ConnectionStatus {
             is LinkState.Connecting -> if (link.attempt == 0) Connecting else Reconnecting
             LinkState.Connected -> Connected
             is LinkState.Retrying -> when {
+                link.afterAppLink -> Reconnecting
                 link.attempt >= OFFLINE_AFTER_ATTEMPTS -> Offline
                 link.reason == DisconnectReason.Unreachable && link.attempt >= 2 -> Offline
                 else -> Reconnecting

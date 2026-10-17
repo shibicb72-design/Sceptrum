@@ -110,7 +110,15 @@ sealed interface LinkState {
     data object Connected : LinkState
 
     /** Waiting [retryInMs] before attempt number [attempt]. */
-    data class Retrying(val attempt: Int, val retryInMs: Long, val reason: DisconnectReason) : LinkState
+    data class Retrying(
+        val attempt: Int,
+        val retryInMs: Long,
+        val reason: DisconnectReason,
+        /** The TV hung up within [RemoteConfig.appLinkGraceMs] of an app link. */
+        val afterAppLink: Boolean = false,
+        /** What ended the last connection, when it was an exception. */
+        val error: Throwable? = null,
+    ) : LinkState
 
     /** The TV refused this phone's certificate ("Need to pair again"). No more retries. */
     data object NeedsPairing : LinkState
@@ -152,6 +160,11 @@ data class RemoteConfig(
      * phone.
      */
     val silentClosesMeanUnpaired: Int = 3,
+    /**
+     * After an app link, a hang-up within this window is the TV failing to
+     * open the link, not a network loss or a refused phone.
+     */
+    val appLinkGraceMs: Long = 15_000,
 )
 
 /** androidtvremote2 `_async_reconnect`: 0.1 s, doubling, capped at 30 s, reset on success. */
@@ -193,6 +206,13 @@ class AtvRemoteClient(
 
     @Volatile
     private var current: Connection? = null
+
+    /**
+     * [System.nanoTime] of the last app link sent, or 0 before the first one.
+     * It is set before the send so a hang-up can never be seen before the timestamp.
+     */
+    @Volatile
+    private var lastAppLinkAt = 0L
 
     /** Starts connecting, or restarts after [stop] or a terminal state. No-op while running. */
     @Synchronized
@@ -237,9 +257,15 @@ class AtvRemoteClient(
     }
 
     /** A URL is sent as is; a bare package id becomes `market://launch?id=<package>`. */
-    fun launchApp(appLinkOrPackage: String): Boolean = sendWhenReady(
-        RemoteMessage(remote_app_link_launch_request = RemoteAppLinkLaunchRequest(AtvEdits.appLink(appLinkOrPackage))),
-    )
+    fun launchApp(appLinkOrPackage: String): Boolean {
+        val previous = lastAppLinkAt
+        lastAppLinkAt = System.nanoTime()
+        val sent = sendWhenReady(
+            RemoteMessage(remote_app_link_launch_request = RemoteAppLinkLaunchRequest(AtvEdits.appLink(appLinkOrPackage))),
+        )
+        if (!sent) lastAppLinkAt = previous
+        return sent
+    }
 
     /**
      * Replaces the focused TV text field with [text] (androidtvremote2 `send_text`):
@@ -267,6 +293,8 @@ class AtvRemoteClient(
             _state.update { it.copy(link = LinkState.Connecting(attempt)) }
             val ending = connectOnce()
             _state.update { it.disconnected() }
+            var afterAppLink = false
+            var lastError: Throwable? = null
             val reason = when (ending) {
                 Ending.NeedsPairing -> {
                     _state.update { it.copy(link = LinkState.NeedsPairing) }
@@ -281,7 +309,14 @@ class AtvRemoteClient(
                         backoff.reset()
                         attempt = 0
                     }
-                    silentCloses = if (ending.closedSilently) silentCloses + 1 else 0
+                    lastError = ending.error
+                    afterAppLink = lastAppLinkAt != 0L &&
+                        System.nanoTime() - lastAppLinkAt < config.appLinkGraceMs * NANOS_PER_MS
+                    silentCloses = when {
+                        afterAppLink -> 0
+                        ending.closedSilently -> silentCloses + 1
+                        else -> 0
+                    }
                     if (silentCloses >= config.silentClosesMeanUnpaired) {
                         _state.update { it.copy(link = LinkState.NeedsPairing) }
                         return
@@ -294,7 +329,7 @@ class AtvRemoteClient(
             while (kick.tryReceive().isSuccess) {
                 // Drop retry requests made while still connected.
             }
-            _state.update { it.copy(link = LinkState.Retrying(attempt, wait, reason)) }
+            _state.update { it.copy(link = LinkState.Retrying(attempt, wait, reason, afterAppLink, lastError)) }
             withTimeoutOrNull(wait) { kick.receive() }
         }
     }
@@ -332,17 +367,18 @@ class AtvRemoteClient(
             val wasReady: Boolean,
             /** TLS was up but the TV closed before sending a single message. */
             val closedSilently: Boolean = false,
+            val error: Throwable? = null,
         ) : Ending
     }
 
     private fun classify(error: Throwable, wasReady: Boolean): Ending {
         val chain = generateSequence(error) { it.cause }.toList()
         if (chain.any { it is PinMismatchException }) return Ending.PinMismatch
-        if (chain.any { it is UnreachableException }) return Ending.Retry(DisconnectReason.Unreachable, wasReady)
+        if (chain.any { it is UnreachableException }) return Ending.Retry(DisconnectReason.Unreachable, wasReady, error = error)
         val network = chain.any { it is SocketException || it is EOFException || it is SocketTimeoutException }
         // androidtvremote2 maps an SSL error before the session is up to InvalidAuth("Need to pair again").
         if (!wasReady && !network && chain.any { it is SSLException }) return Ending.NeedsPairing
-        return Ending.Retry(DisconnectReason.ConnectionLost, wasReady)
+        return Ending.Retry(DisconnectReason.ConnectionLost, wasReady, error = error)
     }
 
     private fun AtvState.disconnected() = copy(isOn = null, currentApp = null, imeField = null)

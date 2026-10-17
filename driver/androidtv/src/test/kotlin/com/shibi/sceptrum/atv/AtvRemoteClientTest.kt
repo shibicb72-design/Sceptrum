@@ -4,11 +4,13 @@ import com.shibi.sceptrum.atv.proto.remote.RemoteDirection
 import com.shibi.sceptrum.testing.atv.AtvFixtures
 import com.shibi.sceptrum.testing.atv.FakeAndroidTvServer
 import com.shibi.sceptrum.testing.atv.ReceivedKey
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -178,9 +180,23 @@ class AtvRemoteClientTest {
         // A refused localhost connect takes about 2 s on Windows, so only the first steps are checked here;
         // the full schedule is backoffDoublesToTheCapAndResets.
         val first = remote.await(timeoutMs = 15_000) { it.link is LinkState.Retrying }.link as LinkState.Retrying
-        assertEquals(LinkState.Retrying(1, 50, DisconnectReason.Unreachable), first)
-        val second = remote.await(timeoutMs = 15_000) { (it.link as? LinkState.Retrying)?.attempt == 2 }.link
-        assertEquals(LinkState.Retrying(2, 100, DisconnectReason.Unreachable), second)
+        assertEquals(LinkState.Retrying(1, 50, DisconnectReason.Unreachable), first.copy(error = null))
+        assertTrue(first.error != null)
+        val second = remote.await(timeoutMs = 15_000) { (it.link as? LinkState.Retrying)?.attempt == 2 }.link as LinkState.Retrying
+        assertEquals(LinkState.Retrying(2, 100, DisconnectReason.Unreachable), second.copy(error = null))
+    }
+
+    @Test
+    fun retryingCarriesTheExceptionThatEndedTheConnection() {
+        val tv = server()
+        val port = tv.remotePort
+        tv.close()
+        val remote = AtvRemoteClient(tv.host, { AtvFixtures.client }, null, scope, fastConfig, port).also {
+            clients += it
+            it.start()
+        }
+        val retrying = remote.await(timeoutMs = 15_000) { it.link is LinkState.Retrying }.link as LinkState.Retrying
+        assertTrue(retrying.error != null)
     }
 
     @Test
@@ -215,6 +231,36 @@ class AtvRemoteClientTest {
         assertTrue(remote.launchApp("com.android.tv.settings"))
         eventually { tv.appLinks.size == 2 }
         assertEquals(listOf("https://www.youtube.com", "market://launch?id=com.android.tv.settings"), tv.appLinks.toList())
+    }
+
+    @Test
+    fun appLinkTheTvCannotOpenReconnectsAndNeverAsksToPairAgain() {
+        val tv = server()
+        val remote = client(tv)
+        remote.await { it.link == LinkState.Connected }
+        val seen = CopyOnWriteArrayList<LinkState>()
+        val watcher = scope.launch { remote.state.collect { seen += it.link } }
+        tv.closeOnAppLink = true
+        tv.silentDrops.set(3)
+        assertTrue(remote.launchApp("https://www.netflix.com/title"))
+        eventually(10_000) { tv.remoteConnections.get() >= 5 } // 1 first + 3 empty closes + 1 good
+        tv.closeOnAppLink = false
+        remote.await(10_000) { it.link == LinkState.Connected }
+        watcher.cancel()
+        assertTrue(seen.none { it == LinkState.NeedsPairing })
+        val retries = seen.filterIsInstance<LinkState.Retrying>()
+        assertTrue(retries.isNotEmpty())
+        assertTrue(retries.all { it.afterAppLink })
+    }
+
+    @Test
+    fun hangUpsWithoutAnAppLinkStillMeanNeedsPairing() {
+        val tv = server()
+        val remote = client(tv)
+        remote.await { it.link == LinkState.Connected }
+        tv.silentDrops.set(10)
+        tv.dropConnections()
+        remote.await(10_000) { it.link == LinkState.NeedsPairing }
     }
 
     @Test

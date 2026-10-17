@@ -5,6 +5,7 @@ import com.shibi.sceptrum.atv.KeyDirection
 import com.shibi.sceptrum.atv.RemoteConfig
 import com.shibi.sceptrum.atv.VolumeInfo
 import com.shibi.sceptrum.atv.proto.remote.RemoteDirection
+import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.session.NetworkEvents
 import com.shibi.sceptrum.session.SessionManager
@@ -210,6 +211,51 @@ class SessionManagerTest {
         assertFalse(manager.sendText("a"))
         assertFalse(manager.launchApp("plex://"))
     }
+
+    @Test
+    fun appLinkHangUpIsLoggedAndTheSessionComesBack() {
+        val log = errorLog()
+        val m = SessionManager(active, { AtvFixtures.client }, scope, config, network, graceMs = 300, errors = log)
+        val tv = tv()
+        active.value = tv.asDevice("Projector")
+        m.acquire()
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+        tv.closeOnAppLink = true
+        assertTrue(m.launchApp("https://www.netflix.com/title"))
+        eventually { log.entries.value.any { it.step == "Launch app" && it.message.contains("netflix") } }
+        tv.closeOnAppLink = false
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+        m.release()
+    }
+
+    @Test
+    fun launchWhileDisconnectedIsLogged() {
+        val log = errorLog()
+        val m = SessionManager(active, { AtvFixtures.client }, scope, config, network, graceMs = 300, errors = log)
+        assertFalse(m.launchApp("plex://"))
+        assertTrue(log.entries.value.single().message.contains("plex://"))
+    }
+
+    @Test
+    fun droppedConnectionIsLoggedOnce() {
+        val log = errorLog()
+        val m = SessionManager(active, { AtvFixtures.client }, scope, config, network, graceMs = 300, errors = log)
+        val tv = tv()
+        active.value = tv.asDevice("Projector")
+        m.acquire()
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+        tv.dropConnections()
+        eventually { log.entries.value.any { it.step == "Connection" && it.message.startsWith("Connection lost") } }
+        runBlocking { withTimeout(8_000) { m.state.first { it.status == ConnectionStatus.Connected } } }
+        assertEquals(1, log.entries.value.count { it.step == "Connection" })
+        m.release()
+    }
+
+    private fun errorLog() = ErrorLog(
+        kotlin.io.path.createTempDirectory("errors").toFile().resolve("e.log"),
+        "0.1.1",
+        "Test phone",
+    )
 
     private fun closedPort() = java.net.ServerSocket(0).use { it.localPort }
 

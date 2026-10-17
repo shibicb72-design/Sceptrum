@@ -24,10 +24,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -62,8 +58,6 @@ class PairingActions(
     val onRetry: () -> Unit = {},
     val onCancel: () -> Unit = {},
     val onOpenRemote: () -> Unit = {},
-    /** Puts the error report on the clipboard. */
-    val onCopyDetails: (String) -> Unit = {},
 )
 
 /** Pairing card: connecting, code entry, paired, or one error card (plan §5.5). */
@@ -196,19 +190,16 @@ private fun HexKeypad(enabled: Boolean, onDigit: (Char) -> Unit, onBackspace: ()
 
 @Composable
 private fun FailedCard(state: PairingUiState.Failed, actions: PairingActions) {
-    var copied by remember(state) { mutableStateOf(false) }
     ErrorLine(errorMessage(state.error, state.target))
     errorHint(state.error)?.let { hint ->
         Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    PillButton(text = stringResource(R.string.pairing_retry), onClick = actions.onRetry, primary = true)
-    PillButton(
-        text = stringResource(if (copied) R.string.pairing_details_copied else R.string.pairing_copy_details),
-        onClick = {
-            actions.onCopyDetails(state.report)
-            copied = true
-        },
+    Text(
+        text = stringResource(R.string.error_log_details_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    PillButton(text = stringResource(R.string.pairing_retry), onClick = actions.onRetry, primary = true)
 }
 
 @Composable

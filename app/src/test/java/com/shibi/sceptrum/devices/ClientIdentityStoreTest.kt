@@ -6,8 +6,9 @@ import com.shibi.sceptrum.store.ClientIdentityRecord
 import com.shibi.sceptrum.testing.atv.AtvFixtures
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import okio.ByteString.Companion.toByteString
@@ -28,7 +29,7 @@ class ClientIdentityStoreTest {
         val firstScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         var created = 0
         val first = TestStores.repository(aead, file, firstScope).clientIdentity { created++; AtvFixtures.client }
-        firstScope.cancel()
+        firstScope.coroutineContext[Job]!!.cancelAndJoin()
 
         val reopened = TestStores.repository(aead, file)
         val again = reopened.clientIdentity { created++; AtvFixtures.stranger }
@@ -45,7 +46,7 @@ class ClientIdentityStoreTest {
         val rawScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val broken = ClientIdentityRecord(private_key_pkcs8 = byteArrayOf(1, 2, 3).toByteString(), certificate_der = byteArrayOf(4).toByteString())
         DeviceRepository.create({ aead }, rawScope) { file }.updateData { it.copy(client_identity = broken) }
-        rawScope.cancel()
+        rawScope.coroutineContext[Job]!!.cancelAndJoin()
 
         val repository = TestStores.repository(aead, file)
         val fresh = repository.clientIdentity { AtvFixtures.stranger }
