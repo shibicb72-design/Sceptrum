@@ -6,6 +6,9 @@ import com.shibi.sceptrum.atv.KeyDirection
 import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.domain.KeyRepeat
 import com.shibi.sceptrum.domain.RemoteKey
+import com.shibi.sceptrum.domain.TvShortcut
+import com.shibi.sceptrum.domain.TvShortcuts
+import com.shibi.sceptrum.domain.TvStep
 import com.shibi.sceptrum.power.PowerController
 import com.shibi.sceptrum.power.PowerUiState
 import com.shibi.sceptrum.power.Waker
@@ -16,7 +19,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Haptics the screen plays for key events it cannot see itself. */
 enum class RemoteHaptic {
@@ -49,10 +54,17 @@ class RemoteViewModel(
 
     private val held = mutableMapOf<RemoteKey, Job>()
     private val longStarted = mutableSetOf<RemoteKey>()
+    private val shortcutJobs = mutableMapOf<TvShortcut, Job>()
+    private val lastWorked = mutableMapOf<Pair<String?, TvShortcut>, Int>()
 
     fun tap(key: RemoteKey) {
         if (key == RemoteKey.Power) {
             if (!powerFlow.press()) _haptics.tryEmit(RemoteHaptic.Reject)
+            return
+        }
+        val shortcut = TvShortcuts.forKey(key)
+        if (shortcut != null) {
+            runShortcut(shortcut)
             return
         }
         send(key, KeyDirection.Short)
@@ -98,6 +110,8 @@ class RemoteViewModel(
     override fun onCleared() {
         held.values.forEach { it.cancel() }
         held.clear()
+        shortcutJobs.values.forEach { it.cancel() }
+        shortcutJobs.clear()
     }
 
     private fun release(key: RemoteKey, sendRelease: Boolean) {
@@ -109,6 +123,42 @@ class RemoteViewModel(
         } else if (job != null) {
             send(key, KeyDirection.Short)
         }
+    }
+
+    /**
+     * Runs a shortcut's ordered fallback steps. The first step is sent right away;
+     * each following step is tried only after [TvShortcuts.CONFIRM_MS] passes
+     * without the TV reporting a different foreground app. The step that finally
+     * worked is remembered per device and shortcut so it is tried first next time.
+     */
+    private fun runShortcut(shortcut: TvShortcut) {
+        shortcutJobs.remove(shortcut)?.cancel()
+        val startApp = session.state.value.currentApp
+        val deviceId = session.state.value.deviceId
+        val steps = TvShortcuts.ordered(shortcut, lastWorked[deviceId to shortcut])
+        if (!sendStep(steps[0])) return
+        shortcutJobs[shortcut] = viewModelScope.launch {
+            for (index in steps.indices) {
+                val confirmed = withTimeoutOrNull(TvShortcuts.CONFIRM_MS) {
+                    session.state.first { it.currentApp != startApp }
+                }
+                if (confirmed != null) {
+                    lastWorked[deviceId to shortcut] = shortcut.steps.indexOf(steps[index])
+                    return@launch
+                }
+                val next = steps.getOrNull(index + 1) ?: return@launch
+                if (!sendStep(next)) return@launch
+            }
+        }
+    }
+
+    private fun sendStep(step: TvStep): Boolean {
+        val ok = when (step) {
+            is TvStep.Key -> session.send(step.keyCode, KeyDirection.Short)
+            is TvStep.Link -> session.launchApp(step.uri)
+        }
+        if (!ok) _haptics.tryEmit(RemoteHaptic.Reject)
+        return ok
     }
 
     private fun send(key: RemoteKey, direction: KeyDirection): Boolean {
