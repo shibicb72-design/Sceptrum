@@ -1,12 +1,14 @@
 package com.shibi.sceptrum.remote
 
 import com.shibi.sceptrum.devices.TestStores
+import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.domain.AppShortcutError
 import com.shibi.sceptrum.domain.AppShortcuts
 import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.session.SessionState
 import com.shibi.sceptrum.store.AppShortcut
 import com.shibi.sceptrum.store.PairedDevice
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,11 +26,16 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /** The apps grid against an in-memory device store and a fake session. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppsViewModelTest {
+    @get:Rule
+    val tmp = TemporaryFolder()
+
     private val repository = TestStores.memoryRepository()
     private val session = FakeSession(SessionState("Projector", ConnectionStatus.Connected))
     private lateinit var vm: AppsViewModel
@@ -109,6 +116,47 @@ class AppsViewModelTest {
         assertNull(awaitState { true }.form.error)
         vm.submit()
         assertEquals(AppShortcutError.Duplicate, awaitState { it.form.error != null }.form.error)
+    }
+
+    @Test
+    fun blockedSchemesAreExplainedAndNeverSaved() {
+        pair()
+        awaitState { it.canEdit }
+        vm.setEditing(true)
+        vm.onLinkChange("intent:#Intent;component=com.evil/.Steal;end")
+        vm.submit()
+        assertEquals(AppShortcutError.BlockedScheme, awaitState { it.form.error != null }.form.error)
+        vm.onLinkChange("javascript:alert(1)")
+        vm.submit()
+        assertEquals(AppShortcutError.BlockedScheme, awaitState { it.form.error != null }.form.error)
+        val stored = runBlocking { repository.devices.first().single() }
+        assertFalse(stored.app_shortcuts_edited)
+    }
+
+    @Test
+    fun storedBlockedTilesAreLeftOutLoggedOnceAndNeverSent() {
+        val errors = ErrorLog(File(tmp.root, "errors.log"), "test", "JVM")
+        val logged = AppsViewModel(repository, session, errors)
+        val job = collector.launch { logged.state.collect {} }
+        val evil = AppShortcut("Evil", "intent:#Intent;component=com.evil/.Steal;S.token=abc;end")
+        runBlocking {
+            repository.savePaired(PairedDevice(id = "mac:01", name = "Projector", host = "192.168.1.50"))
+            repository.setAppShortcuts("mac:01", listOf(AppShortcuts.defaults[0], evil))
+        }
+        val state = runBlocking { withTimeout(5_000) { logged.state.first { it.canEdit && it.shortcuts.size == 1 } } }
+        assertEquals(listOf(AppShortcuts.defaults[0]), state.shortcuts)
+        session.state.value = session.state.value.copy(currentApp = "org.xbmc.kodi")
+        runBlocking { withTimeout(5_000) { logged.state.first { it.currentApp != null } } }
+
+        val entries = errors.entries.value.filter { it.step == "Apps" }
+        assertEquals("one entry however often the state recomputes", 1, entries.size)
+        assertTrue(entries.single().message.contains("intent:"))
+        assertFalse("the link's extras stay out of the log", errors.report().contains("S.token"))
+
+        logged.launch(evil)
+        assertTrue("a blocked link is never sent", session.links.isEmpty())
+        assertEquals("Launch app", errors.entries.value.first().step)
+        job.cancel()
     }
 
     @Test

@@ -9,6 +9,7 @@ import com.shibi.sceptrum.atv.LinkState
 import com.shibi.sceptrum.atv.RemoteConfig
 import com.shibi.sceptrum.atv.VolumeInfo
 import com.shibi.sceptrum.diagnostics.ErrorLog
+import com.shibi.sceptrum.domain.AppShortcuts
 import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.store.PairedDevice
 import kotlinx.coroutines.CoroutineScope
@@ -143,7 +144,7 @@ class SessionManager(
                                 if (link.afterAppLink) {
                                     errors?.record(
                                         "Launch app",
-                                        "The TV hung up right after opening ${lastLink ?: "an app"}; reconnecting",
+                                        "The TV hung up right after opening ${lastLink?.let(AppShortcuts::logLabel) ?: "an app"}; reconnecting",
                                         link.error,
                                         tvLine(device, link),
                                     )
@@ -226,7 +227,7 @@ class SessionManager(
     override fun launchApp(link: String): Boolean {
         lastLink = link
         val sent = current.value?.client?.launchApp(link) ?: false
-        if (!sent) errors?.record("Launch app", "Not sent, the TV is not connected: $link", tv = tvLine())
+        if (!sent) errors?.record("Launch app", "Not sent, the TV is not connected: ${AppShortcuts.logLabel(link)}", tv = tvLine())
         return sent
     }
 

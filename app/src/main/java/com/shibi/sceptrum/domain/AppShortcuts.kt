@@ -8,6 +8,9 @@ enum class AppShortcutError {
     /** Neither a URL with a scheme nor a package id like com.example.app. */
     Invalid,
 
+    /** A link whose scheme is not in [AppShortcuts.allowedSchemes], e.g. intent:, file: or javascript:. */
+    BlockedScheme,
+
     /** A tile with the same link is already in the grid. */
     Duplicate,
 
@@ -19,12 +22,25 @@ enum class AppShortcutError {
  * The apps grid (plan §3.4): defaults, parsing what the user typed, and the
  * list edits. Links are stored ready to send: a URL as typed, a package as
  * `market://launch?id=<package>` (androidtvremote2 `send_launch_app_command`).
+ *
+ * Only links with a scheme in [allowedSchemes] are accepted or sent from this
+ * user path; the TV would otherwise open whatever an `intent:` URI names.
+ * The built-in `intent:` fallbacks live in [TvShortcut] and never pass here.
  */
 object AppShortcuts {
     const val MAX = 24
     private const val MARKET_PREFIX = "market://launch?id="
 
-    private val UriScheme = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
+    /** Web and Play Store links. */
+    val webSchemes: Set<String> = setOf("https", "http", "market")
+
+    /** App deep-link schemes the TV apps register. */
+    val appSchemes: Set<String> = setOf("plex", "netflix", "youtube", "vnd.youtube", "spotify", "primevideo")
+
+    /** Every scheme a user-added link may use; anything else (intent:, file:, content:, javascript:, data:) is refused. */
+    val allowedSchemes: Set<String> = webSchemes + appSchemes
+
+    private val UriScheme = Regex("^([A-Za-z][A-Za-z0-9+.-]*):")
     private val Package = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
 
     /** Plan §3.4 defaults; each still needs a check on the real TVs. */
@@ -56,20 +72,82 @@ object AppShortcuts {
         "com.google.android.apps.tv.launcherx" to "Home",
     )
 
-    /** The device's own grid once edited, else the defaults; no device shows the defaults. */
-    fun effective(device: PairedDevice?): List<AppShortcut> =
-        if (device != null && device.app_shortcuts_edited) device.app_shortcuts else defaults
+    /**
+     * The device's own grid once edited, else the defaults; no device shows the
+     * defaults. Stored tiles whose link is not [isAllowed] are left out.
+     */
+    fun effective(device: PairedDevice?): List<AppShortcut> {
+        if (device == null || !device.app_shortcuts_edited) return defaults
+        val stored = device.app_shortcuts
+        // Same list instance when nothing is blocked, so the grid can skip on unrelated updates.
+        return if (stored.all { isAllowed(it.link) }) stored else stored.filter { isAllowed(it.link) }
+    }
 
-    /** A URL with a scheme stays as typed; a package id becomes a market launch link; anything else is null. */
+    /** Stored tiles [effective] leaves out because their link is not [isAllowed]. */
+    fun blocked(device: PairedDevice?): List<AppShortcut> =
+        if (device != null && device.app_shortcuts_edited) device.app_shortcuts.filterNot { isAllowed(it.link) } else emptyList()
+
+    /**
+     * A URL with an allowed scheme stays as typed; a package id becomes a market
+     * launch link; anything else is null ([refusalFor] says why).
+     */
     fun linkFor(input: String): String? {
         val text = input.trim()
         return when {
-            text.isEmpty() || text.any { it.isWhitespace() } -> null
-            UriScheme.containsMatchIn(text) -> text
-            Package.matches(text) -> MARKET_PREFIX + text
-            else -> null
+            refusalFor(text) != null -> null
+            // Lower-case scheme, so "HTTPS://x" is a duplicate of "https://x" and "Market://" is a market link.
+            UriScheme.containsMatchIn(text) -> schemeOf(text) + ":" + text.substringAfter(':')
+            else -> MARKET_PREFIX + text
         }
     }
+
+    /** Why [linkFor] refuses [input], or null when it accepts it. */
+    fun refusalFor(input: String): AppShortcutError? {
+        val text = input.trim()
+        return when {
+            text.isEmpty() || text.any { it.isWhitespace() || it.isISOControl() } -> AppShortcutError.Invalid
+            UriScheme.containsMatchIn(text) -> if (isAllowed(text)) null else AppShortcutError.BlockedScheme
+            Package.matches(text) -> null
+            else -> AppShortcutError.Invalid
+        }
+    }
+
+    /**
+     * True for a link this path may send: a scheme in [allowedSchemes], and for
+     * web and market links a `//` authority. Case-insensitive, as URI schemes are.
+     */
+    fun isAllowed(link: String): Boolean {
+        if (link.isEmpty() || link.any { it.isWhitespace() || it.isISOControl() }) return false
+        // A fragment can carry "#Intent;component=…;end", which Intent.parseUri on the TV
+        // turns into an arbitrary intent whatever the scheme. No tile needs one.
+        if ('#' in link) return false
+        val scheme = schemeOf(link) ?: return false
+        if (scheme !in allowedSchemes) return false
+        if (scheme !in webSchemes) return true
+        val rest = link.substring(scheme.length + 1)
+        if (!rest.startsWith("//")) return false
+        val authority = rest.substring(2)
+        return authority.isNotEmpty() && authority.first() !in "/?#"
+    }
+
+    /**
+     * [link] as the error log may show it: "https://host", "plex:", or a market
+     * launch link with its package. Never a path, query or fragment, which may
+     * carry tokens or extras. Built-in `intent:` fallbacks ([TvShortcut], which
+     * users can't add) stay whole, so a hang-up names the step that caused it.
+     */
+    fun logLabel(link: String): String {
+        val scheme = schemeOf(link) ?: return "(no scheme)"
+        if (scheme == "intent") return link
+        packageOf(link)?.takeIf { Package.matches(it) }?.let { return MARKET_PREFIX + it }
+        val rest = link.trim().substring(scheme.length + 1)
+        if (!rest.startsWith("//")) return "$scheme:"
+        val host = rest.substring(2).takeWhile { it !in "/?#" }
+        return "$scheme://$host"
+    }
+
+    /** The lower-case scheme of [link], or null when it has none. */
+    fun schemeOf(link: String): String? = UriScheme.find(link.trim())?.groupValues?.get(1)?.lowercase()
 
     /** The package inside a market launch link, or null for a URL link. */
     fun packageOf(link: String): String? = link.removePrefix(MARKET_PREFIX).takeIf { link.startsWith(MARKET_PREFIX) }
@@ -90,7 +168,7 @@ object AppShortcuts {
         return core.ifEmpty { link.substringBefore(':') }.capitalised()
     }
 
-    /** A new tile from the add form. A blank [label] is derived from the link. */
+    /** A new tile from the add form, or null ([refusalFor] says why). A blank [label] is derived from the link. */
     fun parse(label: String, input: String): AppShortcut? {
         val link = linkFor(input) ?: return null
         return AppShortcut(label.trim().ifEmpty { labelFor(link) }, link)

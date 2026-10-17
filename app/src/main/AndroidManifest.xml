@@ -20,12 +20,17 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Sceptrum">
-        <!-- Fold and unfold resize in place so a future TV session is never dropped. -->
+        <!--
+            Fold and unfold resize in place so a future TV session is never dropped.
+            adjustResize: the window never pans for the soft keyboard; Compose moves
+            the content above it from the IME insets (SceptrumScaffold).
+        -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:exported="true"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

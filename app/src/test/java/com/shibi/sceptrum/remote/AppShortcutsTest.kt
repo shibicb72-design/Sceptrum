@@ -2,9 +2,12 @@ package com.shibi.sceptrum.remote
 
 import com.shibi.sceptrum.domain.AppShortcutError
 import com.shibi.sceptrum.domain.AppShortcuts
+import com.shibi.sceptrum.domain.TvShortcut
+import com.shibi.sceptrum.domain.TvStep
 import com.shibi.sceptrum.store.AppShortcut
 import com.shibi.sceptrum.store.PairedDevice
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,6 +47,97 @@ class AppShortcutsTest {
         assertNull(AppShortcuts.linkFor("com.spotify tv"))
         assertNull(AppShortcuts.linkFor(""))
         assertNull(AppShortcuts.linkFor("1com.bad.package"))
+    }
+
+    @Test
+    fun onlyAllowListedSchemesAreAccepted() {
+        for (link in listOf(
+            "https://www.youtube.com",
+            "HTTPS://www.youtube.com",
+            "http://192.168.1.20:32400/web",
+            "market://details?id=com.plexapp.android",
+            "plex://",
+            "netflix://title/80100172",
+            "youtube://watch?v=x",
+            "vnd.youtube:dQw4w9WgXcQ",
+            "spotify:playlist:37i9dQZF1DX0XUsuxWHRQd",
+            "primevideo://detail",
+        )) {
+            assertEquals(link, link.replaceFirst("HTTPS", "https"), AppShortcuts.linkFor(link))
+            assertNull(link, AppShortcuts.refusalFor(link))
+        }
+        assertEquals("market://launch?id=com.netflix.ninja", AppShortcuts.linkFor("Market://launch?id=com.netflix.ninja"))
+        for (link in listOf(
+            "intent:#Intent;component=com.android.tv.settings/.MainSettings;end",
+            "intent://scan/#Intent;scheme=zxing;package=com.google.zxing.client.android;end",
+            "INTENT:#Intent;action=android.settings.SETTINGS;end",
+            "file:///sdcard/Download/app.apk",
+            "content://com.android.providers.downloads/all",
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "android-app://com.example.app",
+            "tel:123",
+            "ftp://example.com",
+        )) {
+            assertNull(link, AppShortcuts.linkFor(link))
+            assertEquals(link, AppShortcutError.BlockedScheme, AppShortcuts.refusalFor(link))
+            assertNull(link, AppShortcuts.parse("Name", link))
+        }
+    }
+
+    @Test
+    fun anIntentFragmentInsideAnAllowedSchemeIsBlocked() {
+        // Intent.parseUri turns "#Intent;…;end" into an intent whatever the scheme.
+        for (link in listOf(
+            "https://www.youtube.com#Intent;component=com.android.tv.settings/.MainSettings;S.k=v;end",
+            "https://example.com/#intent;component=com.evil/.Steal;end",
+            "market://launch?id=x#Intent;action=android.settings.SETTINGS;end",
+            "plex:#Intent;component=com.evil/.Steal;end",
+            "vnd.youtube:x#Intent;component=com.evil/.Steal;end",
+        )) {
+            assertFalse(link, AppShortcuts.isAllowed(link))
+            assertEquals(link, AppShortcutError.BlockedScheme, AppShortcuts.refusalFor(link))
+        }
+    }
+
+    @Test
+    fun logLabelsDropPathsQueriesAndFragments() {
+        assertEquals("https://www.netflix.com", AppShortcuts.logLabel("https://www.netflix.com/title/123?auth=s3cret"))
+        assertEquals("plex://server", AppShortcuts.logLabel("plex://server/library?X-Plex-Token=abc"))
+        assertEquals("spotify:", AppShortcuts.logLabel("spotify:playlist:37i9"))
+        assertEquals("market://launch?id=com.android.tv.settings", AppShortcuts.logLabel("market://launch?id=com.android.tv.settings"))
+        val builtIn = "intent:#Intent;component=com.android.tv.settings/.MainSettings;end"
+        assertEquals("built-in fallbacks stay whole", builtIn, AppShortcuts.logLabel(builtIn))
+    }
+
+    @Test
+    fun webLinksNeedAHost() {
+        for (link in listOf("https:", "https:www.youtube.com", "https://", "https:///path", "market:launch?id=x", "http://?q")) {
+            assertEquals(link, AppShortcutError.BlockedScheme, AppShortcuts.refusalFor(link))
+        }
+        assertEquals(AppShortcutError.Invalid, AppShortcuts.refusalFor("https://x\u0000y"))
+        assertEquals(AppShortcutError.Invalid, AppShortcuts.refusalFor("spotify"))
+        assertEquals(AppShortcutError.Invalid, AppShortcuts.refusalFor("  "))
+    }
+
+    @Test
+    fun theBuiltInIntentFallbacksAreNotUserLinks() {
+        // TvShortcuts sends these directly; the user path must never accept them.
+        val intents = TvShortcut.entries.flatMap { it.steps }.filterIsInstance<TvStep.Link>().map { it.uri }.filter { it.startsWith("intent:") }
+        assertTrue(intents.isNotEmpty())
+        intents.forEach { assertFalse(it, AppShortcuts.isAllowed(it)) }
+        AppShortcuts.defaults.forEach { assertTrue(it.link, AppShortcuts.isAllowed(it.link)) }
+    }
+
+    @Test
+    fun storedTilesWithBlockedSchemesAreLeftOut() {
+        val evil = AppShortcut("Evil", "intent:#Intent;component=com.evil/.Steal;end")
+        val file = AppShortcut("File", "file:///sdcard/x")
+        val device = PairedDevice(id = "a", app_shortcuts = listOf(yt, evil, plex, file), app_shortcuts_edited = true)
+        assertEquals(listOf(yt, plex), AppShortcuts.effective(device))
+        assertEquals(listOf(evil, file), AppShortcuts.blocked(device))
+        assertTrue(AppShortcuts.blocked(null).isEmpty())
+        assertTrue(AppShortcuts.blocked(PairedDevice(id = "a", app_shortcuts = listOf(evil))).isEmpty())
     }
 
     @Test

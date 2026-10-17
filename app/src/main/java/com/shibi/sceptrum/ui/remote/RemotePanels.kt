@@ -33,6 +33,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
@@ -243,21 +244,26 @@ fun AppsCard(
             trailing()
         }
         Spacer(Modifier.height(12.dp))
+        // At most 24 tiles: a plain Column of Rows (no lazy grid). Rows are cached
+        // per list, and each tile is keyed by its link so a reorder within a row keeps its state.
+        val rows = remember(state.shortcuts, columns) { state.shortcuts.withIndex().chunked(columns) }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            state.shortcuts.withIndex().chunked(columns).forEach { row ->
+            rows.forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { (index, shortcut) ->
-                        AppTile(
-                            shortcut = shortcut,
-                            editing = state.editing,
-                            first = index == 0,
-                            last = index == state.shortcuts.lastIndex,
-                            onLaunch = { actions.onLaunch(shortcut) },
-                            onMoveUp = { actions.onMoveUp(index) },
-                            onMoveDown = { actions.onMoveDown(index) },
-                            onRemove = { actions.onRemove(index) },
-                            modifier = Modifier.weight(1f),
-                        )
+                        key(shortcut.link) {
+                            AppTile(
+                                shortcut = shortcut,
+                                editing = state.editing,
+                                first = index == 0,
+                                last = index == state.shortcuts.lastIndex,
+                                onLaunch = { actions.onLaunch(shortcut) },
+                                onMoveUp = { actions.onMoveUp(index) },
+                                onMoveDown = { actions.onMoveDown(index) },
+                                onRemove = { actions.onRemove(index) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                     repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                 }
@@ -372,14 +378,17 @@ private fun AddAppForm(state: AppsUiState, actions: AppsActions) {
         modifier = Modifier.fillMaxWidth(),
     )
     state.form.error?.let { error ->
+        // Inside the glass card: onSurfaceVariant is the card's own content colour.
         Text(
-            text = stringResource(
-                when (error) {
-                    AppShortcutError.Invalid -> R.string.apps_error_invalid
-                    AppShortcutError.Duplicate -> R.string.apps_error_duplicate
-                    AppShortcutError.Full -> R.string.apps_error_full
-                },
-            ),
+            text = when (error) {
+                AppShortcutError.Invalid -> stringResource(R.string.apps_error_invalid)
+                AppShortcutError.BlockedScheme -> stringResource(
+                    R.string.apps_error_blocked_scheme,
+                    AppShortcuts.allowedSchemes.joinToString(", "),
+                )
+                AppShortcutError.Duplicate -> stringResource(R.string.apps_error_duplicate)
+                AppShortcutError.Full -> stringResource(R.string.apps_error_full)
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
