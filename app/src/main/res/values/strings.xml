@@ -82,6 +82,7 @@
     <string name="apps_add_current">Add current app: %1$s</string>
     <string name="apps_reset">Reset to defaults</string>
     <string name="apps_error_invalid">Enter a package like com.example.app or a link like https://www.youtube.com.</string>
+    <string name="apps_error_blocked_scheme">Sceptrum only sends web, Play Store and known app links (%1$s). intent:, file:, content: and similar links, and links with a # part, are blocked.</string>
     <string name="apps_error_duplicate">That app is already in the grid.</string>
     <string name="apps_error_full">The grid is full. Remove an app first.</string>
     <string name="apps_pair_to_edit">Pair a TV to change its apps.</string>

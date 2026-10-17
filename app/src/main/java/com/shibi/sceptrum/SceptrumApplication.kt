@@ -80,7 +80,7 @@ class AppGraph(context: Context) {
         initializer { PairingViewModel(pairingGateway, deviceRepository, appVersion = versionName(), errors = errorLog) }
         initializer { RemoteViewModel(sessionManager, waker) }
         initializer { KeyboardViewModel(sessionManager, remotePreferences.keyPressTyping) }
-        initializer { AppsViewModel(deviceRepository, sessionManager) }
+        initializer { AppsViewModel(deviceRepository, sessionManager, errors = errorLog) }
         initializer { RemoteSettingsViewModel(remotePreferences) }
     }
 

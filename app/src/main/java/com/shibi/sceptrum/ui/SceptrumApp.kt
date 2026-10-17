@@ -12,12 +12,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fitInside
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.WindowInsetsRulers
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
@@ -92,28 +93,34 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
     val pairing: PairingViewModel = viewModel(factory = factory)
     val devicesState by devices.state.collectAsStateWithLifecycle()
     val pairingState by pairing.state.collectAsStateWithLifecycle()
-    val deviceActions = DevicesActions(
-        onSelect = devices::select,
-        onEdit = devices::edit,
-        onRenameChange = devices::onRenameChange,
-        onSaveRename = devices::saveRename,
-        onAskForget = devices::askForget,
-        onConfirmForget = devices::confirmForget,
-        onCloseEdit = devices::closeEdit,
-        onPair = { pairing.begin(devices.targetFor(it)) },
-        onRefresh = devices::refresh,
-        onManualChange = devices::onManualChange,
-        onManualSubmit = { devices.manualTarget()?.let(pairing::begin) },
-    )
-    val pairingActions = PairingActions(
-        onCodeChange = pairing::onCodeChange,
-        onRetry = pairing::retry,
-        onCancel = pairing::cancel,
-        onOpenRemote = {
-            pairing.cancel()
-            navController.openSection(NavSection.Remote)
-        },
-    )
+    // Action holders are remembered: one instance per view model, so screens skip
+    // when only unrelated state (a scan result, a typed character) changes.
+    val deviceActions = remember(devices, pairing) {
+        DevicesActions(
+            onSelect = devices::select,
+            onEdit = devices::edit,
+            onRenameChange = devices::onRenameChange,
+            onSaveRename = devices::saveRename,
+            onAskForget = devices::askForget,
+            onConfirmForget = devices::confirmForget,
+            onCloseEdit = devices::closeEdit,
+            onPair = { pairing.begin(devices.targetFor(it)) },
+            onRefresh = devices::refresh,
+            onManualChange = devices::onManualChange,
+            onManualSubmit = { devices.manualTarget()?.let(pairing::begin) },
+        )
+    }
+    val pairingActions = remember(pairing, navController) {
+        PairingActions(
+            onCodeChange = pairing::onCodeChange,
+            onRetry = pairing::retry,
+            onCancel = pairing::cancel,
+            onOpenRemote = {
+                pairing.cancel()
+                navController.openSection(NavSection.Remote)
+            },
+        )
+    }
 
     SceptrumFrame(darkTheme = darkTheme, background = background) { widthClass ->
         SceptrumScaffold(
@@ -138,10 +145,12 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
                         devices.refresh()
                         onDispose { devices.stopScan() }
                     }
-                    BackHandler(enabled = pairingState != PairingUiState.Idle) { pairing.cancel() }
-                    BackHandler(enabled = pairingState == PairingUiState.Idle && devicesState.editing != null) {
-                        devices.closeEdit()
-                    }
+                    DevicesBack(
+                        pairingOpen = { pairingState != PairingUiState.Idle },
+                        editing = { devicesState.editing != null },
+                        onCancelPairing = pairing::cancel,
+                        onCloseEdit = devices::closeEdit,
+                    )
                     DevicesScreen(
                         widthClass = widthClass,
                         state = devicesState,
@@ -157,7 +166,7 @@ fun SceptrumApp(appearance: AppearanceViewModel = viewModel()) {
                     val errorEntries by graph.errorLog.entries.collectAsStateWithLifecycle()
                     var showErrorLog by rememberSaveable { mutableStateOf(false) }
                     if (showErrorLog) {
-                        BackHandler { showErrorLog = false }
+                        CloseOnBack { showErrorLog = false }
                         ErrorLogScreen(
                             report = remember(errorEntries) { graph.errorLog.report() },
                             entryCount = errorEntries.size,
@@ -233,40 +242,51 @@ private fun RemoteRoute(
     LaunchedEffect(keyboard) {
         keyboard.openRequests.collect { if (panel == RemotePanel.None) panel = RemotePanel.Keyboard }
     }
-    BackHandler(enabled = panel != RemotePanel.None) { panel = RemotePanel.None }
-    RemoteScreen(
-        widthClass = widthClass,
-        session = session,
-        actions = RemoteActions(
+    CloseOnBack(enabled = panel != RemotePanel.None) { panel = RemotePanel.None }
+    // Remembered so the d-pad, rockers and app tiles skip while the session,
+    // volume or keyboard text recompose this route.
+    val remoteActions = remember(remote, onOpenDevices) {
+        RemoteActions(
             onTap = remote::tap,
             onPress = remote::press,
             onRelease = remote::release,
             onRetry = remote::retry,
             onOpenDevices = onOpenDevices,
-        ),
+        )
+    }
+    val typingActions = remember(keyboard) {
+        TypingActions(
+            onTextChange = keyboard::onTextChange,
+            onBackspace = keyboard::backspace,
+            onEnter = keyboard::enter,
+            onClear = keyboard::clear,
+        )
+    }
+    val appsActions = remember(apps) {
+        AppsActions(
+            onLaunch = apps::launch,
+            onEditing = apps::setEditing,
+            onLabelChange = apps::onLabelChange,
+            onLinkChange = apps::onLinkChange,
+            onSubmit = apps::submit,
+            onAddCurrent = apps::addCurrentApp,
+            onRemove = apps::remove,
+            onMoveUp = apps::moveUp,
+            onMoveDown = apps::moveDown,
+            onReset = apps::resetToDefaults,
+        )
+    }
+    RemoteScreen(
+        widthClass = widthClass,
+        session = session,
+        actions = remoteActions,
         devices = devicesState,
         deviceActions = deviceActions,
         extras = RemoteExtras(
             keyboard = keyboardState,
-            typing = TypingActions(
-                onTextChange = keyboard::onTextChange,
-                onBackspace = keyboard::backspace,
-                onEnter = keyboard::enter,
-                onClear = keyboard::clear,
-            ),
+            typing = typingActions,
             apps = appsState,
-            appsActions = AppsActions(
-                onLaunch = apps::launch,
-                onEditing = apps::setEditing,
-                onLabelChange = apps::onLabelChange,
-                onLinkChange = apps::onLinkChange,
-                onSubmit = apps::submit,
-                onAddCurrent = apps::addCurrentApp,
-                onRemove = apps::remove,
-                onMoveUp = apps::moveUp,
-                onMoveDown = apps::moveDown,
-                onReset = apps::resetToDefaults,
-            ),
+            appsActions = appsActions,
             power = power,
             onDismissPower = remote::dismissPowerTip,
             panel = panel,
@@ -305,7 +325,13 @@ fun SceptrumFrame(
     }
 }
 
-/** Section content above, the glass carousel in its own slot below. */
+/**
+ * Section content above, the glass carousel in its own slot below. With the
+ * soft keyboard up the content shrinks to end at the keyboard's top edge
+ * (`fitInside` the IME ruler, so only the part the keyboard really covers
+ * counts and the carousel and nav bar are not added twice); the carousel stays
+ * behind the keyboard. Scrolling sections then keep the focused field in view.
+ */
 @Composable
 fun SceptrumScaffold(
     section: NavSection,
@@ -320,7 +346,8 @@ fun SceptrumScaffold(
                 .fillMaxWidth()
                 .windowInsetsPadding(
                     WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-                ),
+                )
+                .fitInside(WindowInsetsRulers.Ime.current),
         ) {
             content()
         }
