@@ -207,7 +207,10 @@ class AtvRemoteClient(
     @Volatile
     private var current: Connection? = null
 
-    /** [System.nanoTime] of the last app link sent, or 0 before the first one. */
+    /**
+     * [System.nanoTime] of the last app link sent, or 0 before the first one.
+     * It is set before the send so a hang-up can never be seen before the timestamp.
+     */
     @Volatile
     private var lastAppLinkAt = 0L
 
@@ -255,10 +258,12 @@ class AtvRemoteClient(
 
     /** A URL is sent as is; a bare package id becomes `market://launch?id=<package>`. */
     fun launchApp(appLinkOrPackage: String): Boolean {
+        val previous = lastAppLinkAt
+        lastAppLinkAt = System.nanoTime()
         val sent = sendWhenReady(
             RemoteMessage(remote_app_link_launch_request = RemoteAppLinkLaunchRequest(AtvEdits.appLink(appLinkOrPackage))),
         )
-        if (sent) lastAppLinkAt = System.nanoTime()
+        if (!sent) lastAppLinkAt = previous
         return sent
     }
 
