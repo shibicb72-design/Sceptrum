@@ -1,0 +1,20 @@
+﻿# Gradle / build
+.gradle/
+build/
+*/build/
+out/
+captures/
+.externalNativeBuild/
+.cxx/
+# Local config
+local.properties
+.idea/
+*.iml
+.DS_Store
+# Keys and secrets
+*.jks
+*.keystore
+keystore.properties
+google-services.json
+# Logs
+*.log
