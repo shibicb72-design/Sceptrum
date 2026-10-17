@@ -1,0 +1,18 @@
+Sceptrum
+Copyright 2026 the Sceptrum authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software derived from androidtvremote2
+(https://github.com/tronikos/androidtvremote2), licensed under the
+Apache License, Version 2.0:
+  - driver/androidtv/src/main/proto/sceptrum/atv/polo.proto and
+    remotemessage.proto are vendored from it (headers note the changes).
+    polo.proto originates from the Android Open Source Project
+    google-tv-pairing-protocol, Copyright 2009 Google Inc.
+  - The Android TV Remote protocol v2 client in driver/androidtv (framing,
+    pairing secret, pairing and control-session message flow, feature mask,
+    reconnect backoff, certificate name/MAC parsing) is a Kotlin port of its
+    base.py, pairing.py, remote.py and androidtv_remote.py.
+  - tools/atv_fixtures.py reproduces its pairing-secret expressions to make
+    the golden test vectors.
