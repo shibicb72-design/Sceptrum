@@ -18,7 +18,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.shibi.sceptrum.atv.VolumeInfo
 import com.shibi.sceptrum.devices.DevicesUiState
+import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.domain.AppBackground
 import com.shibi.sceptrum.domain.DiscoveredRow
 import com.shibi.sceptrum.domain.PairingError
@@ -26,6 +28,7 @@ import com.shibi.sceptrum.domain.PairingTarget
 import com.shibi.sceptrum.domain.PairingUiState
 import com.shibi.sceptrum.domain.SavedRow
 import com.shibi.sceptrum.domain.WindowWidthClass
+import com.shibi.sceptrum.session.SessionState
 import com.shibi.sceptrum.ui.SceptrumFrame
 import com.shibi.sceptrum.ui.SceptrumScaffold
 import com.shibi.sceptrum.ui.devices.DevicesScreen
@@ -44,6 +47,12 @@ private const val Unfolded = "w984dp-h1092dp-xhdpi"
 private const val Dir = "build/outputs/roborazzi"
 
 private val Target = PairingTarget(name = "XGIMI Horizon S Max", host = "192.168.1.50")
+private val Connected = SessionState(
+    deviceName = "XGIMI Horizon S Max",
+    status = ConnectionStatus.Connected,
+    volume = VolumeInfo(level = 23, max = 100, muted = false),
+    isOn = true,
+)
 private val CodeEntry = PairingUiState.EnterCode(Target, code = "4FA")
 private val SampleDevices = DevicesUiState(
     saved = listOf(
@@ -99,6 +108,47 @@ class ScreenshotTest {
 
     @Config(qualifiers = Unfolded)
     @Test fun settingsUnfoldedDark() = shot("settings_unfolded_dark", NavSection.Settings, dark = true)
+
+    @Test fun remoteConnectedFoldedPastel() =
+        shot("remote_connected_folded_pastel", NavSection.Remote, dark = false, session = Connected)
+
+    @Test fun remoteConnectedFoldedDark() = shot("remote_connected_folded_dark", NavSection.Remote, dark = true, session = Connected)
+
+    @Config(qualifiers = Unfolded)
+    @Test fun remoteConnectedUnfoldedPastel() =
+        shot("remote_connected_unfolded_pastel", NavSection.Remote, dark = false, session = Connected)
+
+    @Config(qualifiers = Unfolded)
+    @Test fun remoteConnectedUnfoldedDark() =
+        shot("remote_connected_unfolded_dark", NavSection.Remote, dark = true, session = Connected)
+
+    @Test fun remoteMutedFoldedDark() = shot(
+        "remote_muted_folded_dark",
+        NavSection.Remote,
+        dark = true,
+        session = Connected.copy(volume = VolumeInfo(23, 100, muted = true)),
+    )
+
+    @Test fun remoteReconnectingFoldedPastel() = shot(
+        "remote_reconnecting_folded_pastel",
+        NavSection.Remote,
+        dark = false,
+        session = Connected.copy(status = ConnectionStatus.Reconnecting),
+    )
+
+    @Test fun remoteOfflineFoldedDark() = shot(
+        "remote_offline_folded_dark",
+        NavSection.Remote,
+        dark = true,
+        session = Connected.copy(status = ConnectionStatus.Offline),
+    )
+
+    @Test fun remoteNeedsPairingFoldedPastel() = shot(
+        "remote_needs_pairing_folded_pastel",
+        NavSection.Remote,
+        dark = false,
+        session = Connected.copy(status = ConnectionStatus.NeedsPairing),
+    )
 
     @Test fun devicesEmptyFoldedPastel() =
         shot("devices_empty_folded_pastel", NavSection.Devices, dark = false, devices = DevicesUiState())
@@ -196,11 +246,12 @@ class ScreenshotTest {
         background: AppBackground = AppBackground.Solid("sky"),
         devices: DevicesUiState = SampleDevices,
         pairing: PairingUiState = PairingUiState.Idle,
+        session: SessionState = SessionState(),
     ) {
         captureRoboImage("$Dir/$name.png") {
             SceptrumFrame(darkTheme = dark, background = background) { widthClass ->
                 SceptrumScaffold(section = section, onSelect = {}) {
-                    Screen(section, widthClass, dark, background, devices, pairing)
+                    Screen(section, widthClass, dark, background, devices, pairing, session)
                 }
             }
         }
@@ -214,9 +265,10 @@ class ScreenshotTest {
         background: AppBackground,
         devices: DevicesUiState,
         pairing: PairingUiState,
+        session: SessionState,
     ) {
         when (section) {
-            NavSection.Remote -> RemoteScreen(widthClass)
+            NavSection.Remote -> RemoteScreen(widthClass, session = session, devices = devices)
             NavSection.Devices -> DevicesScreen(widthClass, state = devices, pairing = pairing)
             NavSection.Settings -> SettingsScreen(
                 widthClass = widthClass,
