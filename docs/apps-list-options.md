@@ -43,6 +43,16 @@ badges or bundled generic artwork.
 - Risk: none.
 - Result: partial list, only apps the owner has opened.
 
+**Status: shipped in PR 7.** Rules in `domain/LearnedApps.kt` (deny-list of
+launchers, settings and system screens plus any package whose last part
+contains "launcher" or is "settings"/"systemui"; 40 apps per TV, least recently
+seen evicted; removals stick), storage in `data/LearnedAppsRepository.kt`
+(`learned_apps.pb`, Tink-encrypted, keyed by device id), tiles under "Seen on
+this TV" after the curated grid. Launch uses the known deep link, else
+`market://launch?id=<package>`, through the PR 6 allow-list. Badges are
+generated per package (`domain/AppBadge.kt`), never artwork. Options B and C
+are not started; the owner has not chosen them.
+
 ## Option B - ADB over the network (one-time setup on the projector)
 
 No app is installed on the TV. The owner enables developer options once.

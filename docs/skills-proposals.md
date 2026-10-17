@@ -56,6 +56,24 @@ device check first.
 - Optional: mark the **Copy all** clip as sensitive
   (`ClipDescription.EXTRA_IS_SENSITIVE`).
 
+## PR 7 (learned apps): adaptive and jetpack-compose-performance
+
+Applied: the apps grid is a `LazyVerticalGrid` with `GridCells.Adaptive(96.dp)`
+(adaptive skill), every item has a string key and a content type, and the
+theme local is read once outside the items (performance skill).
+
+Proposals, not done:
+
+- **adaptive:** size the grid columns with the Compose `MediaQuery` / `Grid`
+  APIs and move the remote's panes to Navigation 3 scenes. Both need newer
+  libraries than the pinned BOM, so no.
+- **Learned-tile "Restore removed apps"** in Settings: removals stick forever
+  today (`DeviceLearnedApps.removed`, capped at 100). Adding the app to the
+  curated grid by hand still works.
+- **Driver-level app reports:** the session sees the foreground app through a
+  conflating `StateFlow`, so a very fast A, B, A switch can miss B. A
+  `SharedFlow` of `app_info` events in `AtvRemoteClient` would see each one.
+
 ## Not adopted (house rules)
 
 - Hilt (testing-setup), Navigation 3 (adaptive and navigation-3), Dropshots or
