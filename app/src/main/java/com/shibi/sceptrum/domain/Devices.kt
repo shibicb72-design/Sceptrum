@@ -19,6 +19,8 @@ data class SavedRow(
     val active: Boolean,
     /** Seen by the current or last scan. */
     val online: Boolean,
+    /** Wake-on-LAN MAC, empty when the certificate had none. */
+    val mac: String = "",
 )
 
 data class DiscoveredRow(val name: String, val host: String, val port: Int)
@@ -54,6 +56,7 @@ object DeviceListMerge {
                 host = match?.host ?: device.host,
                 active = device.id == effectiveActive,
                 online = match != null,
+                mac = device.mac,
             )
         }
         val discoveredRows = discovered

@@ -11,6 +11,7 @@ import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
+import com.shibi.sceptrum.store.AppShortcut
 import com.shibi.sceptrum.store.DeviceStore
 import com.shibi.sceptrum.store.PairedDevice
 import java.io.File
@@ -70,6 +71,29 @@ class DeviceRepository(private val dataStore: DataStore<DeviceStore>) {
                     if (it.id == id && it.host != host) it.copy(host = host, last_seen_at_ms = seenAtMs) else it
                 },
             )
+        }
+    }
+
+    /** A blank name is ignored. */
+    suspend fun rename(id: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        update(id) { it.copy(name = trimmed) }
+    }
+
+    /** Saves the apps grid in this order; from now on it replaces the defaults. */
+    suspend fun setAppShortcuts(id: String, shortcuts: List<AppShortcut>) {
+        update(id) { it.copy(app_shortcuts = shortcuts, app_shortcuts_edited = true) }
+    }
+
+    /** Back to the built-in grid. */
+    suspend fun resetAppShortcuts(id: String) {
+        update(id) { it.copy(app_shortcuts = emptyList(), app_shortcuts_edited = false) }
+    }
+
+    private suspend fun update(id: String, change: (PairedDevice) -> PairedDevice) {
+        dataStore.updateData { store ->
+            store.copy(devices = store.devices.map { if (it.id == id) change(it) else it })
         }
     }
 

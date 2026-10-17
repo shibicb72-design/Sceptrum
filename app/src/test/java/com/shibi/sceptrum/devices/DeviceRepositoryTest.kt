@@ -2,6 +2,7 @@ package com.shibi.sceptrum.devices
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.shibi.sceptrum.data.EncryptedDeviceStoreSerializer
+import com.shibi.sceptrum.store.AppShortcut
 import com.shibi.sceptrum.store.DeviceStore
 import com.shibi.sceptrum.store.PairedDevice
 import java.io.ByteArrayInputStream
@@ -91,6 +92,35 @@ class DeviceRepositoryTest {
         assertEquals("falls back to the first saved device", tcl, repo.activeDevice.first())
         repo.forget(tcl.id)
         assertNull(repo.activeDevice.first())
+    }
+
+    @Test
+    fun renameAndAppGridSurviveANewRepositoryOnTheSameFile() = runBlocking {
+        val aead = TestStores.aead()
+        val file = TestStores.tempFile()
+        val first = CoroutineScope(Dispatchers.IO + Job())
+        val repo = TestStores.repository(aead, file, first)
+        repo.savePaired(tv)
+        repo.savePaired(tcl)
+        val grid = listOf(AppShortcut("Plex", "plex://"), AppShortcut("Kodi", "market://launch?id=org.xbmc.kodi"))
+        repo.rename(tv.id, "  Living room projector ")
+        repo.rename(tcl.id, "   ")
+        repo.setAppShortcuts(tv.id, grid)
+        first.coroutineContext[Job]!!.cancelAndJoin()
+
+        val reopened = TestStores.repository(aead, file)
+        val stored = reopened.devices.first().associateBy { it.id }
+        assertEquals("Living room projector", stored.getValue(tv.id).name)
+        assertEquals("a blank name is ignored", "TCL 75QM6K", stored.getValue(tcl.id).name)
+        assertEquals(grid, stored.getValue(tv.id).app_shortcuts)
+        assertTrue(stored.getValue(tv.id).app_shortcuts_edited)
+        assertFalse(stored.getValue(tcl.id).app_shortcuts_edited)
+        assertEquals("the pin is untouched", tv.server_cert_sha256, stored.getValue(tv.id).server_cert_sha256)
+
+        reopened.resetAppShortcuts(tv.id)
+        val reset = reopened.devices.first().first { it.id == tv.id }
+        assertFalse(reset.app_shortcuts_edited)
+        assertTrue(reset.app_shortcuts.isEmpty())
     }
 
     /** A file that will not decrypt (other key, restored backup) is wiped, not fatal. */
