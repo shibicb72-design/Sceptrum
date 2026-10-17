@@ -5,8 +5,10 @@ import com.shibi.sceptrum.atv.AtvState
 import com.shibi.sceptrum.atv.ClientIdentityProvider
 import com.shibi.sceptrum.atv.ImeField
 import com.shibi.sceptrum.atv.KeyDirection
+import com.shibi.sceptrum.atv.LinkState
 import com.shibi.sceptrum.atv.RemoteConfig
 import com.shibi.sceptrum.atv.VolumeInfo
+import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.domain.ConnectionStatus
 import com.shibi.sceptrum.store.PairedDevice
 import kotlinx.coroutines.CoroutineScope
@@ -78,8 +80,14 @@ class SessionManager(
     private val config: RemoteConfig,
     private val network: NetworkEvents? = null,
     private val graceMs: Long = GRACE_MS,
+    private val errors: ErrorLog? = null,
 ) : RemoteSession {
     private val current = MutableStateFlow<Active?>(null)
+
+    /** The last app link passed to [launchApp], for the "hung up right after" message. */
+    @Volatile
+    private var lastLink: String? = null
+
     private var users = 0
     private var graceJob: Job? = null
 
@@ -104,6 +112,85 @@ class SessionManager(
         scope.launch {
             activeDevice.collect { onActiveDevice(it) }
         }
+        watchLinkErrors()
+    }
+
+    /**
+     * Records the link transitions worth a diagnostic report: a lost or refused
+     * connection, a failed first connect, a hang-up right after an app link, and
+     * the terminal pairing states. Later retry cycles are ignored so the log
+     * never floods.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun watchLinkErrors() {
+        scope.launch {
+            var previous: LinkState? = null
+            current
+                .flatMapLatest { active ->
+                    if (active == null) {
+                        flowOf<Pair<PairedDevice, LinkState>?>(null)
+                    } else {
+                        active.client.state.map { active.device to it.link }
+                    }
+                }
+                .collect { value ->
+                    if (value == null) return@collect
+                    val (device, link) = value
+                    val before = previous
+                    if (link != before) {
+                        when {
+                            link is LinkState.Retrying && before == LinkState.Connected ->
+                                if (link.afterAppLink) {
+                                    errors?.record(
+                                        "Launch app",
+                                        "The TV hung up right after opening ${lastLink ?: "an app"}; reconnecting",
+                                        link.error,
+                                        tvLine(device, link),
+                                    )
+                                } else {
+                                    errors?.record(
+                                        "Connection",
+                                        "Connection lost (${link.reason})",
+                                        link.error,
+                                        tvLine(device, link),
+                                    )
+                                }
+                            link is LinkState.Retrying && before is LinkState.Connecting && before.attempt == 0 ->
+                                errors?.record(
+                                    "Connection",
+                                    "Could not connect (${link.reason})",
+                                    link.error,
+                                    tvLine(device, link),
+                                )
+                            link is LinkState.NeedsPairing ->
+                                errors?.record(
+                                    "Connection",
+                                    "The TV no longer accepts this phone; pair again",
+                                    null,
+                                    tvLine(device, link),
+                                )
+                            link is LinkState.IdentityChanged ->
+                                errors?.record(
+                                    "Connection",
+                                    "The TV's certificate changed since pairing",
+                                    null,
+                                    tvLine(device, link),
+                                )
+                        }
+                        previous = link
+                    }
+                }
+        }
+    }
+
+    /** The device name, address and status, e.g. "Projector (127.0.0.1:6466) Connected". */
+    private fun tvLine(device: PairedDevice, link: LinkState): String =
+        "${device.name} (${device.host}:${device.port}) ${ConnectionStatus.from(link)}"
+
+    /** [tvLine] for the live device, or "" when there is none. */
+    private fun tvLine(): String {
+        val live = current.value ?: return ""
+        return tvLine(live.device, live.client.state.value.link)
     }
 
     @Synchronized
@@ -136,7 +223,12 @@ class SessionManager(
 
     override fun sendText(text: String): Boolean = current.value?.client?.sendText(text) ?: false
 
-    override fun launchApp(link: String): Boolean = current.value?.client?.launchApp(link) ?: false
+    override fun launchApp(link: String): Boolean {
+        lastLink = link
+        val sent = current.value?.client?.launchApp(link) ?: false
+        if (!sent) errors?.record("Launch app", "Not sent, the TV is not connected: $link", tv = tvLine())
+        return sent
+    }
 
     override fun retry() {
         current.value?.client?.retryNow()

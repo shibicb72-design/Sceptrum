@@ -10,6 +10,7 @@ import com.shibi.sceptrum.atv.RemoteConfig
 import com.shibi.sceptrum.data.DeviceRepository
 import com.shibi.sceptrum.data.StoredClientIdentityProvider
 import com.shibi.sceptrum.devices.DevicesViewModel
+import com.shibi.sceptrum.diagnostics.ErrorLog
 import com.shibi.sceptrum.discovery.NsdTvDiscovery
 import com.shibi.sceptrum.discovery.TvDiscovery
 import com.shibi.sceptrum.domain.LanAccess
@@ -46,6 +47,9 @@ class AppGraph(context: Context) {
     val discovery: TvDiscovery by lazy { NsdTvDiscovery(app) }
     val clientIdentity by lazy { StoredClientIdentityProvider(deviceRepository) }
 
+    /** Every caught error; Settings > Debugging / Error log shows it. */
+    val errorLog: ErrorLog by lazy { ErrorLog(java.io.File(app.filesDir, "error_log.txt"), versionName(), Build.MODEL) }
+
     /** Shown on the TV while pairing, e.g. "Sceptrum (SM-F966B)". */
     val clientName: String = "Sceptrum (${Build.MODEL})"
 
@@ -62,6 +66,7 @@ class AppGraph(context: Context) {
             // androidtvremote2 sends "atvremote"; plan section 7.1 uses our own package name.
             config = RemoteConfig(packageName = app.packageName, appVersion = versionName()),
             network = ConnectivityNetworkEvents(app),
+            errors = errorLog,
         )
     }
 
