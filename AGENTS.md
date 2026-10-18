@@ -1,37 +1,45 @@
-# Sceptrum house rules
+# AGENTS.md - Sceptrum (Android TV / Google TV remote)
 
-- Dependencies only through `gradle/libs.versions.toml`.
-- User-visible text in `app/src/main/res/values/strings.xml`.
-- Definition of done: `assembleDebug test recordRoborazziDebug` green with zero `^w:` lines (CI enforces the warning gate).
-- Pure logic stays free of Android so plain JUnit can test it: protocol code lives in `:driver:androidtv` (Kotlin/JVM, no Android imports), test doubles in `:testing:fakes`.
-- No `Slider(` anywhere in the app UI (`NoSliderTest`): volume is buttons only.
-- Every painted surface takes its content colour from its own container (`ContrastSurface`).
+Primary tool: Claude Code (config in `.claude/`). The free OpenCode models are handled by Marcus, not by this file.
+Retro and lessons from every PR: `docs/lessons.md` (moved there verbatim; read only the part your ticket touches). Plan and research: `docs/`.
+
+## Ground rules
+- **Phone:** never `adb install`, uninstall, or clear/change app data on Shibi's phone or devices. Install only after Shibi's explicit yes for that specific install. When a build is ready, stop and report the CI APK artifact. Read-only adb only when truly needed; prefer Settings > Debugging / Error log.
+- **PRs:** one branch per PR (`opus/<topic>`), stacked on the previous PR's branch until `main` has the app; say which base in the PR. The PR body starts with "Do not merge without Shibi's OK." Never merge, never push to `main`, never force-push.
+- **Work in progress:** check `git status` first. If the tree is dirty or on a feature branch with local commits, use `git worktree add` instead of switching branches.
+- Never kill `claude.exe` or `opencode.exe`. Never commit secrets (pairing keys, certificates, `keystore.properties`).
+- **Debug keystore:** `app/debug.keystore` is committed on purpose: a DEBUG-ONLY, NON-SECRET key (android / androiddebugkey) so every CI APK has the same signature and updates in place. Never point a release signingConfig at it. CI versionCode = 100 + `GITHUB_RUN_NUMBER` (3 locally).
+
+## Project map
+- `:app` (Compose UI, view models, `SessionManager`, DataStore + Tink stores), `:core:model`, `:driver:androidtv` (Android TV Remote v2 protocol, Kotlin/JVM, no Android imports), `:testing:fakes` (fake TV and test doubles).
+- Pure logic stays free of Android so plain JUnit can test it.
+- Dependencies only through `gradle/libs.versions.toml`. User-visible text in `app/src/main/res/values/strings.xml`.
 - Code ported from androidtvremote2 (Apache-2.0) is credited in `NOTICE`; GPL/LGPL/EPL code is never translated.
-- Add a retro line below after every PR.
 
-## Retro
+## Build and test (always via the wrapper)
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gradle-brief.ps1 assembleDebug testDebugUnitTest
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gradle-brief.ps1 assembleDebug test recordRoborazziDebug
+```
+- `testDebugUnitTest` skips the JVM modules; use `test` before a PR (it also runs `:driver:androidtv`).
+- Prints `BUILD OK` plus up to 5 `w:` lines, or the first failure lines with context. Full log: `%TEMP%\gradle-last.log` (Grep it; never read it whole). Exit code = Gradle's.
+- If the shared `~/.gradle` cache has broken locks, add `-g .gradle/user-home` (git-ignored).
 
-- PR 2 (protocol core): Windows aborts a TLS 1.3 connection with a TCP reset when the server refuses the client certificate, so the `bad_certificate` alert never arrives. "Needs pairing" therefore also triggers after 3 silent closes in a row, not only on an SSL error.
-- PR 3 (discovery and pairing): an indeterminate spinner never lets Roborazzi reach idle; Robolectric then runs out of heap in `ShadowTrace`. Spinners go through `BusyIndicator`, which is still when the animator scale is 0, and screenshot tests set that scale. DataStore allows one live instance per file, so reopen tests cancel the first store's scope.
-- PR 4 (usable remote): hold timing lives in `RemoteViewModel`, not in gestures, so it is tested in virtual time; the UI only reports press and release. `SessionManager` is pure Kotlin (network events behind an interface) and is tested against the fake TV.
-- PR 4b (pairing fix): a real XGIMI projector showed "TV refused pairing" at once and never a code. Every TLS failure was labelled "refused", and the client key was an Android Keystore key, which most likely could not sign the RSA-PSS CertificateVerify that TLS 1.3 needs (Conscrypt asks it for raw RSA). The client identity is now a software RSA key in the encrypted store, as androidtvremote2 does; failures are split into Rejected (polo status), Handshake (TLS) and Dropped (no status), and every error card copies a diagnostic report. Replies are parsed field by field so a status outside the enum still shows its number.
-- PR 5 (Google TV MVP): on Windows, back-to-back DataStore writes can fail to rename over a file the virus scanner still holds, so view-model tests that write often use `TestStores.memoryRepository()`; on-disk round trips stay in `DeviceRepositoryTest`. The keyboard sends the whole field value after 150 ms of quiet and clears with `KEYCODE_DEL`, because androidtvremote2 refuses an empty edit.
-- PR 5b (device fixes, written by DeepSeek in small tasks): on the XGIMI projector KEYCODE_SETTINGS and KEYCODE_TV_INPUT did nothing, so Settings and Input run an ordered chain (`TvShortcuts`: key, then intent app links) and stop at the first step after which the TV reports a new foreground app. A TV that cannot open an app link hangs up the control connection; a hang-up within `appLinkGraceMs` of an app link no longer counts toward the silent-close NeedsPairing rule and shows Reconnecting, never Offline. Every caught error goes to the persistent `ErrorLog` (Settings > Debugging / Error log); error cards point there instead of copying their own report.
-- PR 6 (skills hardening, Opus with Google's Android skills): user-added app links now pass a scheme allow-list in `AppShortcuts` (https, http, market + named app schemes). The built-in `intent:` fallbacks stay in `TvShortcuts`, on a path users can't reach. `ErrorLog` scrubs PEM, base64 and hex blobs, fingerprints, pairing codes and secret fields on write and on load. Back is one `NavigationBackHandler` per state (`ui/BackHandlers.kt`; navigationevent comes with activity-compose 1.13, no new dependency). The IME is handled once with `fitInside(WindowInsetsRulers.Ime)` at `SceptrumScaffold`, plus `adjustResize`; the keyboard bar's own `imePadding` was double padding. Audit in `docs/security-audit.md`, skipped skill advice in `docs/skills-proposals.md`. The shared `~/.gradle` transform cache had broken lock files ("Unexpected lock protocol found in lock file. Expected 3, found 0"), so this PR built with `./gradlew.bat -g .gradle/user-home …` (git-ignored).
-- PR 7 (learned apps, Option A of `docs/apps-list-options.md`): the protocol cannot list apps, so every foreground app the TV reports is remembered per device id in its own Tink-sealed DataStore (`learned_apps.pb`, `LearnedAppsRepository`) and shown under "Seen on this TV". The rules live in `domain/LearnedApps.kt`: one deny-list set plus "launcher"/"settings"/"systemui" last parts, 40 apps with the least recently seen evicted, sticky removals, and package ids capped at 255 characters, because a TV can send up to 1 MB. `SessionManager` keeps the last app per device, so a reconnect or the hang-up after an app link does not count the same app again. The apps grid is a `LazyVerticalGrid(GridCells.Adaptive(96.dp))`: three columns folded, two in the side panel. The side panel keeps the keyboard card outside the grid, because a lazy item scrolled away loses focus and closes the IME. Badges come from `AppBadge` and reach 4.5:1 against the colour `ContrastSurface` actually paints.
-- PR 8 (channel buttons): the TV sends nothing that tells a TV from a projector or a box. `device_info` is free-form model/vendor strings, the feature bits have no tuner bit, and the mDNS TXT has only `bt=` (MAC). androidtvremote2 and Home Assistant never classify devices either (`docs/channel-buttons.md`). So nothing is guessed: each device has a "Show channel buttons" switch (Devices edit card, on by default), stored as `PairedDevice.hide_channel_buttons`. It is inverted so the proto3 `false` default keeps the rocker on devices saved before. Without the rocker, `KeyRow`'s SpaceEvenly spreads volume and mute, so there is no hole. The switch saves at once; a failed write turns it back and goes to `ErrorLog`.
+## Definition of done
+- `assembleDebug test recordRoborazziDebug` green with zero `^w:` lines (CI "Android CI" enforces the warning gate).
+- Logic changes come with tests. Report the actual result.
+- Add one retro line to `docs/lessons.md` after every PR.
 
-## Lessons for agents
+## Design rules
+- No dark-on-dark text: every painted surface takes its content colour from its own container (`ContrastSurface`).
+- Works folded and unfolded (single column folded, side panel unfolded); check both in screenshots.
+- No visible volume sliders: no `Slider(` anywhere in the app UI (`NoSliderTest`); volume is buttons only.
+- The carousel nav (`ui/nav/NavCarousel`) stays. Spinners go through `BusyIndicator` so screenshots reach idle.
 
-- Adding a field to a data class changes its `equals()`: search the tests for `assertEquals` on that type and update them. A `Throwable` field never compares equal to a freshly built one, so compare `value.copy(error = null)` and check the exception separately (PR 5b, `LinkState.Retrying.error`).
-- Compose UI test: `assertExists()` and `assertDoesNotExist()` are member functions of `SemanticsNodeInteraction`; importing them fails with "Unresolved reference". Only extension assertions and actions (`assertIsSelected`, `assertIsNotEnabled`, `performClick`, `performScrollTo`) are imported (PR 5b).
-- Record any "it just happened" timestamp or flag BEFORE handing a message to another thread, not after: the writer can send it, the TV can answer and the reader can act before the caller's next line runs. Laptop tests pass, the 2-core CI runner catches it (PR 5b, `lastAppLinkAt`).
-- `scope.cancel()` returns before the scope has finished. Before opening a second DataStore on the same file, use `scope.coroutineContext[Job]!!.cancelAndJoin()`, or CI fails with "multiple DataStores active for the same file" (FileStorage.kt:52) (PR 5b, `ClientIdentityStoreTest`).
-- Screenshot PNGs are not in git. To prove "no visual change", run `recordRoborazziDebug` before the change, then `verifyRoborazziDebug --tests …ScreenshotTest` after it, before any new record. Check `app/build/test-results/roborazzi/debug/results-summary.json` for `"changed":0` (PR 6).
-- IME in Robolectric: call `WindowCompat.setDecorFitsSystemWindows(window, false)`, then `ViewCompat.dispatchApplyWindowInsets(decorView, insets)` with `Type.ime()` visible. The insets reach `WindowInsetsRulers`/`fitInside`. Prove the test can fail by running it once without the fix. Clicking a field that has text opens a cursor-handle popup, a second root, so `onRoot()` throws: use `onAllNodes(isRoot()).onFirst()` (PR 6, `ImeInsetsTest`).
-- Kotlin evaluates arguments left to right, so `assertTrue(log.report(), doWrite())` builds the message before the write runs and shows an empty log. Store the result first: `val ok = doWrite(); assertTrue(log.report(), ok)` (PR 7).
-- `launch(NonCancellable)` is deprecated and fails the warning gate. For work that must finish after the screen closes (deletions), use `launch { withContext(NonCancellable) { … } }` (PR 7, `DevicesViewModel.confirmForget`).
-- A new proto3 bool that means "on by default" must be stored inverted (`hide_x`, not `show_x`): an absent field reads `false`, so every record saved before the field existed would turn the feature off (PR 8).
-- For a labelled switch, put `Modifier.toggleable(role = Role.Switch)` on the row and `Switch(onCheckedChange = null)`. Then TalkBack reads the label, and a test can find the row with `onNodeWithText(label, substring = true)` and use `assertIsOn()`/`assertIsOff()` (PR 8).
-- A "does nothing" test must wait for a later write that is known to land before it checks the store; checking straight away passes even when a stray write is still in flight (PR 8).
-- A lazy grid can never sit inside `verticalScroll` (it crashes on infinite height). Make the grid the scrolling container and put header and footer cards in as full-span items (`GridItemSpan(maxLineSpan)`) (PR 7).
+## Delegation (token budget)
+- Builds and tests -> `gradle-runner` (Haiku).
+- Screenshot review -> `screenshot-reviewer` (Haiku, failing `*_compare.png` only).
+- Code search -> `Explore` (Haiku, read-only).
+- Planned implementation -> `android-implementer` (Sonnet). Planning stays in the main conversation (`opusplan`).
+- The main conversation never reads PNGs, full Gradle logs or files under `build/`.
+- `/clear` between tickets. How to measure: `docs/token-budget.md`.
