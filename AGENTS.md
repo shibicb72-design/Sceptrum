@@ -35,3 +35,10 @@
 - For a labelled switch, put `Modifier.toggleable(role = Role.Switch)` on the row and `Switch(onCheckedChange = null)`. Then TalkBack reads the label, and a test can find the row with `onNodeWithText(label, substring = true)` and use `assertIsOn()`/`assertIsOff()` (PR 8).
 - A "does nothing" test must wait for a later write that is known to land before it checks the store; checking straight away passes even when a stray write is still in flight (PR 8).
 - A lazy grid can never sit inside `verticalScroll` (it crashes on infinite height). Make the grid the scrolling container and put header and footer cards in as full-span items (`GridItemSpan(maxLineSpan)`) (PR 7).
+
+## Lesson (fix-debug-signing): CI debug APKs must share one signing key
+- Without a signingConfig, AGP signs debug builds with ~/.android/debug.keystore. Every GitHub Actions runner is fresh, so each run made a new key (PR 8 run 39072801227: f6ce65b9...96e7, PR 7 run 39071494158: ea8ff5db...0a8f). Android refused the update with "App not installed" after Play Protect passed. versionCode was also fixed at 3.
+- app/debug.keystore is committed on purpose. It is a DEBUG-ONLY, NON-SECRET key (standard debug credentials: android / androiddebugkey). It is not for release or the Play Store; never point a release signingConfig at it.
+- versionCode = 100 + GITHUB_RUN_NUMBER in CI (3 locally), so each newer CI APK is an upgrade and beats the old fixed 3.
+- After this change, uninstall Sceptrum once on every phone (old installs carry a different key); after that, CI APKs update in place.
+- Check with: apksigner verify --print-certs <apk> on two runs; the SHA-256 must match.

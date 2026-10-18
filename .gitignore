@@ -15,6 +15,7 @@ local.properties
 # Keys and secrets
 *.jks
 *.keystore
+!app/debug.keystore
 keystore.properties
 google-services.json
 # Logs
